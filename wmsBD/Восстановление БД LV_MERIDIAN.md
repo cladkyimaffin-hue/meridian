@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "MSSQL 2019, Zabbix"
+author: cladkyimaffin-hue
+purpose: "Регламент проверки целостности резервных копий и процедуры восстановления базы данных"
+status: "completed"
+related_files:
+  - "Архивация баз данных SQL Server.md"
+tags:
+  - MSSQL
+  - Restore
+  - Zabbix
+  - Monitoring
+---
 ### USER
 КОНТЕКСТ: МЕХАНИЗМ ВОССТАНОВЛЕНИЯ LV_MERIDIAN (состояние на 2026-08-15 21:52).
 

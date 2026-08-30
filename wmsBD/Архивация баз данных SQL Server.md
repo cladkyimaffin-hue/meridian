@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "MSSQL 2019 (WMSDB), Synology NAS"
+author: cladkyimaffin-hue
+purpose: "Настройка периодического резервного копирования БД LV_MERIDIAN на сетевое хранилище Synology"
+status: "completed"
+related_files:
+  - "Восстановление БД LV_MERIDIAN.md"
+tags:
+  - MSSQL
+  - Backup
+  - Synology-NAS
+  - Troubleshooting
+---
 ### USER
 установлен сервер mssql 2019 и Synology NAS необходимо сделать переодическое архевирование файлов только баз в 12 часов 15ч 18ч 21ч 00ч  3ч 6ч 9ч хранения баз 7 дней
 Необходимо расчитать сегоднешнее величину базы и место на диске Synology NAS

@@ -5,7 +5,7 @@ author: cladkyimaffin-hue
 purpose: "Пошаговая инструкция по развертыванию RemoteApp для внутреннего использования"
 status: "in_progress"
 related_files:
-  - "Настройка RemoteApp на Windows Server 2022 #1.md"
+  - "Настройка RemoteApp на Windows Server 2022 #2.md"
 tags:
   - RDS
   - RemoteApp

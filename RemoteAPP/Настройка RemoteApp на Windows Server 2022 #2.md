@@ -8,7 +8,6 @@
 - **Связанные файлы:** [[Настройка RemoteApp на Windows Server 2022 #1.md]]
 - **Ключевые теги:** #RDS #RemoteApp #WindowsServer2022 #Инструкция
 ---
-### USER
 ### ASSISTANT
 **Шаг 20 — Сбор фактических ошибок запуска RemoteApp из журналов сервера**
 

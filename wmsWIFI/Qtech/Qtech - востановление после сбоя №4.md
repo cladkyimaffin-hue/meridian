@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82, VM wmswifi (192.168.12.154)"
+author: cladkyimaffin-hue
+purpose: "Протокол восстановления работы точек доступа Qtech после системного сбоя"
+status: "completed"
+related_files:
+  - "№5 Qtech - восстановление после сбоя.md"
+tags:
+  - Qtech
+  - Wimark-ONE
+  - Troubleshooting
+  - Recovery
+---
 # Полный чат — диагностика Wimark ONE (сессия №2)
 
 ---

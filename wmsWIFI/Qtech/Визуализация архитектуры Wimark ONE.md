@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE Architecture"
+author: cladkyimaffin-hue
+purpose: "Схематичное описание компонентов Wimark ONE (nginx, backend, mongo, mosquitto, configurer) и их взаимодействий"
+status: "completed"
+related_files:
+  - "Протокол диагностики Wimark ONE — для новой сессии.md"
+tags:
+  - Architecture
+  - Documentation
+  - Wimark-ONE
+---
 ### USER
 ================================================================================
 ПРОТОКОЛ РАЗРАБОТКИ ИНТЕРАКТИВНОЙ ПАНЕЛИ МОНИТОРИНГА WIMARK ONE

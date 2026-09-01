@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE (Docker), VM wmswifi (192.168.12.154)"
+author: cladkyimaffin-hue
+purpose: "Диагностика и устранение первого инцидента полного отказа запуска системы Wimark ONE"
+status: "completed"
+related_files:
+  - "Qtech не запускается№2 Поднялся-поиск лицензии.md"
+tags:
+  - Docker
+  - Troubleshooting
+  - Incident-Report
+---
 ### USER
 Не загружается - нужно проверить почему и запустить
 

@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, MongoDB"
+author: cladkyimaffin-hue
+purpose: "Поиск и восстановление лицензионных ключей после успешного поднятия сервисов Wimark ONE"
+status: "completed"
+related_files:
+  - "Восстановление лицензии статистики.md"
+tags:
+  - Licensing
+  - MongoDB
+  - Troubleshooting
+---
 ### USER
 ЗАДАЧА: Запустить Qtech и сделать его доступным по адресу http://192.168.12.154 (порт 80). Ошибка в браузере: ERR_CONNECTION_REFUSED.
 АРХИТЕКТУРА:

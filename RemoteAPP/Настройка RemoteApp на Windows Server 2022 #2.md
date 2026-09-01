@@ -1,16 +1,58 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Windows Server 2022 (vmSAPP, IP: 192.168.12.53)"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Пошаговая инструкция по развертыванию RemoteApp для внутреннего использования"
-status: "in_progress"
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Windows Server 2022 (vmSAPP, IP: 192.168.12.53, Role: Session Host / Web Access)"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость безопасной публикации приложений и настройки шифрования трафика для доступа."
+solution: "Настройка привязки доверенных SSL-сертификатов, конфигурация правил брандмауэра и финальные проверки безопасности Remote Desktop."
+root_cause: "Неприменимо (стандартная процедура харденинга)."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Инструкция по финальной настройке RemoteApp: публикация приложений, привязка доверенных SSL-сертификатов для шифрования RDP-трафика и настройка правил брандмауэра Windows."
+key_takeaways:
+  - "Использование доверенного SSL-сертификата обязательно для предотвращения предупреждений безопасности у клиентов."
+  - "Правила брандмауэра должны строго ограничивать входящие подключения только необходимыми портами (3389 или 443)."
+dont_repeat:
+  - "Не предлагать использование самоподписанных сертификатов для production-среды из-за рисков безопасности и предупреждений в клиентах."
+assumptions:
+  - "SSL-сертификат уже получен от внутреннего или внешнего ЦС и установлен в хранилище 'Личные' сервера."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Проверка привязки сертификата к ролям RDS
+  Get-RDCertificate -Role RDWebAccess
+  Get-RDCertificate -Role RDPublishing
+config_snippets:
+  firewall_rules: |
+    Разрешить входящие подключения (Windows Defender Firewall):
+    - Remote Desktop (TCP 3389)
+    - HTTPS (TCP 443) - если используется RD Web Access / Gateway
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
   - "Настройка RemoteApp на Windows Server 2022 #1.md"
+depends_on:
+  - "Настройка RemoteApp на Windows Server 2022 #1.md"
+superseded_by: ""
 tags:
-  - RDS
-  - RemoteApp
-  - WindowsServer2022
-  - Инструкция
+  - "RDS"
+  - "RemoteApp"
+  - "SSL"
+  - "Security"
+  - "WindowsServer2022"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### ASSISTANT
 **Шаг 20 — Сбор фактических ошибок запуска RemoteApp из журналов сервера**

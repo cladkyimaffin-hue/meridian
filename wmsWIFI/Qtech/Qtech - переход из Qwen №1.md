@@ -1,4 +1,15 @@
-
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82"
+author: cladkyimaffin-hue
+purpose: "Документация процесса миграции или перехода управления с предыдущей системы/контекста на Wimark ONE"
+status: "completed"
+related_files: []
+tags:
+  - Qtech
+  - Wimark-ONE
+  - Migration
+---
 /
 fa311d10-b264-41c6-9635-787ea69c13ce_ПромтИИ.txt
 fa311d10-b264-41c6-9635-787ea69c13ce

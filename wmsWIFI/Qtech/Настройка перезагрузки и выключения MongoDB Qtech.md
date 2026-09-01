@@ -1,3 +1,15 @@
+---
+date_created: 2026-08-30
+target_system: "MongoDB, Wimark ONE"
+author: cladkyimaffin-hue
+purpose: "Регламент безопасной перезагрузки и остановки контейнера MongoDB для предотвращения повреждения данных"
+status: "completed"
+related_files: []
+tags:
+  - MongoDB
+  - Maintenance
+  - Docker
+---
 ### USER
 настроить graceful shutdown в systemd/Hyper-V, чтобы MongoDB успела выполнить финальный checkpoint.
 

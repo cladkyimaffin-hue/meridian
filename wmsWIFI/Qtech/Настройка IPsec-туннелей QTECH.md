@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "QTECH QWP-82, strongSwan, Wimark ONE"
+author: cladkyimaffin-hue
+purpose: "Детальная инструкция по настройке IPsec-туннелей между точками доступа Qtech и сервером Wimark ONE"
+status: "completed"
+related_files:
+  - "Qtech - подключение ТД №3.md"
+tags:
+  - IPsec
+  - strongSwan
+  - Qtech
+  - Networking
+---
 ### USER
 ПРОТОКОЛ И КОНТЕКСТ: Настройка IPsec-туннелей QTECH QWP-82 на Wimark ONE
 Дата: 20 июля 2026 г.

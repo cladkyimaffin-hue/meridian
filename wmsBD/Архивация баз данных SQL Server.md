@@ -1,17 +1,92 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "MSSQL 2019 (WMSDB), Synology NAS"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Настройка периодического резервного копирования БД LV_MERIDIAN на сетевое хранилище Synology"
 status: "completed"
+
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "MSSQL 2019 (WMSDB, 192.168.12.153), Synology NAS (wmsbackup)"
+environment: "production"
+
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "medium"
+problem: "Необходимо настроить автоматическое резервное копирование БД LV_MERIDIAN на Synology NAS с расписанием 8 раз в сутки и хранением 7 дней"
+solution: "Создана учётная запись sqlbackup на обоих узлах, служба MSSQLSERVER переведена на неё, бэкапы выполняются по UNC-пути"
+root_cause: "Служба SQL Server (NT Service\MSSQLSERVER) не может аутентифицироваться на NAS в рабочей группе без домена"
+
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Настройка резервного копирования LV_MERIDIAN на Synology NAS. Ключевая проблема: служба MSSQL не видит буквенные диски и не может аутентифицироваться через машинную учётку. Решение: совпадающая учётка sqlbackup на обоих узлах."
+key_takeaways:
+  - "Служба SQL Server не видит буквенные диски (Z:), только UNC-пути"
+  - "В рабочей группе служба предъявляет машинную учётку (WMSDB$), которую NAS не может аутентифицировать"
+  - "Метод совпадающих учётных записей: одинаковое имя и пароль на сервере и NAS"
+  - "Менять учётку службы только через SQL Server Configuration Manager, не через services.msc"
+dont_repeat:
+  - "Не предлагать использование буквенных дисков (Z:) для BACKUP DATABASE"
+  - "Не предлагать создание пользователя MSSQLSERVER на Synology (служба предъявляет WMSDB$, а не MSSQLSERVER)"
+  - "Не бэкапить MRDN_Exchange и ConnectDB (осознанное решение заказчика)"
+assumptions:
+  - "Сервер в рабочей группе, без Active Directory"
+  - "Перезапуск службы MSSQLSERVER допустим"
+  - "Synology NAS доступна по UNC wmsbackup\LV_MERIDIAN"
+
+# === АРТЕФАКТЫ ===
+commands: |
+  -- Тестовый бэкап для проверки прав
+  BACKUP DATABASE [LV_MERIDIAN]
+  TO DISK = N'wmsbackup\LV_MERIDIAN\test_LV_MERIDIAN.bak'
+  WITH INIT, STATS = 10;
+  
+  -- Проверка учётной записи службы
+  SELECT servicename, service_account
+  FROM sys.dm_server_services;
+  
+  -- Расчёт размера баз
+  SELECT 
+      DB_NAME(database_id) AS DatabaseName,
+      CAST(SUM(CASE WHEN type = 0 THEN size END) * 8.0 / 1024 AS DECIMAL(18,2)) AS DataSizeMB,
+      CAST(SUM(CASE WHEN type = 1 THEN size END) * 8.0 / 1024 AS DECIMAL(18,2)) AS LogSizeMB,
+      CAST(SUM(size) * 8.0 / 1024 AS DECIMAL(18,2)) AS TotalSizeMB
+  FROM sys.master_files
+  WHERE database_id > 4
+  GROUP BY database_id
+  ORDER BY TotalSizeMB DESC;
+
+config_snippets:
+  backup_schedule: |
+    Расписание: 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00
+    Хранение: 7 дней (56 копий)
+    База: LV_MERIDIAN (169.75 МБ)
+    Место на NAS: ~10 ГБ (0.1% от 10 ТБ)
+
+urls:
+  - "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/sql-server-backup-to-url"
+
+# === СВЯЗИ ===
 related_files:
   - "Восстановление БД LV_MERIDIAN.md"
+  - "Ошибка лицензии.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - MSSQL
-  - Backup
-  - Synology-NAS
-  - Troubleshooting
+  - "MSSQL"
+  - "Backup"
+  - "Synology-NAS"
+  - "Troubleshooting"
+  - "Error-1326"
+
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-15
+next_review: 2026-12-01
+valid_until: 2027-08-30
+
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: ""
+approval_status: "approved"
 ---
+
 ### USER
 установлен сервер mssql 2019 и Synology NAS необходимо сделать переодическое архевирование файлов только баз в 12 часов 15ч 18ч 21ч 00ч  3ч 6ч 9ч хранения баз 7 дней
 Необходимо расчитать сегоднешнее величину базы и место на диске Synology NAS

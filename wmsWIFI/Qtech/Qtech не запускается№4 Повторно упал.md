@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE (Docker), VM wmswifi (192.168.12.154)"
+author: cladkyimaffin-hue
+purpose: "Анализ причин повторного падения сервисов Wimark ONE после первоначального восстановления"
+status: "completed"
+related_files:
+  - "Qtech не запускается№1 Упал поднимали.md"
+tags:
+  - Docker
+  - Troubleshooting
+  - Incident-Report
+---
 ### USER
 Протокол диагностики Wimark ONE — обновление после сессии (для новой сессии)
 1. Архитектура и окружение (без изменений)

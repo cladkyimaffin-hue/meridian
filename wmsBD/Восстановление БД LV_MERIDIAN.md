@@ -1,17 +1,125 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "MSSQL 2019, Zabbix"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Регламент проверки целостности резервных копий и процедуры восстановления базы данных"
 status: "completed"
+
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: 'MSSQL 2019 (WMSDB, 192.168.12.153), Zabbix, Synology NAS (wmsbackup)'
+environment: "production"
+
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "recovery"
+severity: "high"
+problem: |
+  Необходимо настроить регламент проверки целостности резервных копий LV_MERIDIAN и процедуру восстановления с мониторингом в Zabbix.
+solution: |
+  Настроен VERIFYONLY для проверки копий, drill-restore с параметром MOVE в тестовую БД, Zabbix-агент с ключами minutes_ago и last_run_status для мониторинга свежести бэкапов.
+root_cause: |
+  Без автоматической проверки бэкапов невозможно гарантировать возможность восстановления; мониторинг Zabbix позволяет обнаружить проблему до инцидента.
+
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: |
+  Регламент восстановления БД LV_MERIDIAN из бэкапов на Synology NAS. Включает VERIFYONLY для проверки целостности, drill-restore с MOVE в тестовую БД, и мониторинг свежести последней копии через Zabbix-агента (ключи minutes_ago, last_run_status).
+key_takeaways:
+  - 'VERIFYONLY проверяет целостность бэкапа без фактического восстановления'
+  - 'RESTORE WITH MOVE обязателен при восстановлении на другой экземпляр или в тестовую БД'
+  - 'Zabbix-агент должен работать на сервере WMSDB и отдавать ключи minutes_ago и last_run_status'
+  - 'Drill-restore нужно проводить регулярно (рекомендуется раз в квартал) для проверки реальной восстанавливаемости'
+  - 'Конфигурация подключения Zabbix к MSSQL хранится в connStr — при её поломке ключ last_run_status не работает'
+dont_repeat:
+  - 'Не восстанавливать бэкап поверх рабочей БД без предварительного полного бэкапа текущей версии'
+  - 'Не использовать RESTORE без параметра MOVE при восстановлении на тот же экземпляр'
+  - 'Не игнорировать алерты Zabbix по minutes_ago — это прямой индикатор проблем с расписанием бэкапов'
+assumptions:
+  - 'Бэкапы хранятся на Synology NAS по UNC-пути \\wmsbackup\LV_MERIDIAN'
+  - 'Zabbix-агент установлен и работает на сервере WMSDB'
+  - 'Учётная запись sqlbackup имеет права чтения на папке бэкапов'
+  - 'Достаточно места для временной тестовой БД при drill-restore'
+
+# === АРТЕФАКТЫ ===
+commands: |
+  -- Проверка целостности бэкапа без восстановления
+  RESTORE VERIFYONLY
+  FROM DISK = N'\\wmsbackup\LV_MERIDIAN\LV_MERIDIAN_20260815_210000.bak'
+  WITH CHECKSUM;
+
+  -- Drill-restore в тестовую БД с MOVE файлов
+  RESTORE DATABASE [LV_MERIDIAN_TEST]
+  FROM DISK = N'\\wmsbackup\LV_MERIDIAN\LV_MERIDIAN_20260815_210000.bak'
+  WITH
+    MOVE 'LV_MERIDIAN' TO 'C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\DATA\LV_MERIDIAN_TEST.mdf',
+    MOVE 'LV_MERIDIAN_log' TO 'C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER\MSSQL\DATA\LV_MERIDIAN_TEST_log.ldf',
+    RECOVERY, REPLACE, STATS = 10;
+
+  -- Удаление тестовой БД после проверки
+  DROP DATABASE [LV_MERIDIAN_TEST];
+
+  -- Проверка последней успешной копии в БД
+  SELECT
+      database_name,
+      backup_finish_date,
+      type,
+      physical_device_name
+  FROM msdb.dbo.backupset bs
+  JOIN msdb.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
+  WHERE database_name = 'LV_MERIDIAN'
+  ORDER BY backup_finish_date DESC;
+
+  -- Zabbix-агент: ручной вызов ключа minutes_ago
+  zabbix_agentd -t minutes_ago
+
+config_snippets:
+  zabbix_keys: |
+    Ключ minutes_ago:
+      - Возвращает количество минут с момента последнего успешного бэкапа
+      - Триггер: > 200 минут (при расписании каждые 3 часа)
+      - Источник: анализ файлов в \\wmsbackup\LV_MERIDIAN
+    
+    Ключ last_run_status:
+      - Возвращает 0 (успех) или 1 (ошибка)
+      - Зависит от connStr в конфиге Zabbix-агента
+      - При поломке connStr ключ перестаёт работать
+    
+  drill_restore_schedule: |
+    Периодичность: раз в квартал
+    Длительность: 1-2 часа
+    Результат: отчёт о успешном восстановлении
+    Ответственный: cladkyimaffin-hue
+
+urls:
+  - "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/verify-a-sql-server-backup"
+  - "https://learn.microsoft.com/en-us/sql/relational-databases/backup-restore/restore-a-database-to-a-new-location-sql-server"
+
+# === СВЯЗИ ===
 related_files:
   - "Архивация баз данных SQL Server.md"
+  - "Ошибка лицензии.md"
+depends_on:
+  - "Архивация баз данных SQL Server.md"
+superseded_by: ""
 tags:
-  - MSSQL
-  - Restore
-  - Zabbix
-  - Monitoring
+  - "MSSQL"
+  - "Restore"
+  - "Zabbix"
+  - "Monitoring"
+  - "Drill-Restore"
+  - "VERIFYONLY"
+
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-17
+next_review: 2026-12-01
+valid_until: 2027-08-30
+
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: ""
+approval_status: "approved"
 ---
+
+# Регламент восстановления БД LV_MERIDIAN
+
+Основной текст файла...
 ### USER
 КОНТЕКСТ: МЕХАНИЗМ ВОССТАНОВЛЕНИЯ LV_MERIDIAN (состояние на 2026-08-15 21:52).
 

@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82"
+author: cladkyimaffin-hue
+purpose: "Диагностика ситуации, когда лицензии активны, но точки доступа потеряли связь с управляющим сервером"
+status: "completed"
+related_files:
+  - "Qtech не запускается№4 Лицензии есть ТД потеряли сервер.md"
+tags:
+  - Qtech
+  - Connectivity
+  - Troubleshooting
+---
 ### USER
 НАЧАЛО ПРОТОКОЛА ДЛЯ НОВОЙ СЕССИИ
 1. Архитектура и окружение:

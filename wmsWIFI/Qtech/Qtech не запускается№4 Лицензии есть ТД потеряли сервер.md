@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82"
+author: cladkyimaffin-hue
+purpose: "Продолжение диагностики потери связи ТД с сервером при активных лицензиях"
+status: "completed"
+related_files:
+  - "Qtech не запускается№3 Лицензии есть ТД потеряли сервер.md"
+tags:
+  - Qtech
+  - Connectivity
+  - Troubleshooting
+---
 ПОЛНЫЙ ПРОТОКОЛ ЧАТА
 Диагностика Wimark ONE — офлайн-статус устройств QTECH QWP-82
 Дата: 18 июля 2026

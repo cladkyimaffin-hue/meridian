@@ -1,4 +1,16 @@
-
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82"
+author: cladkyimaffin-hue
+purpose: "Инструкция по первичному подключению и регистрации точек доступа Qtech в системе Wimark ONE"
+status: "completed"
+related_files:
+  - "Настройка IPsec-туннелей QTECH.md"
+tags:
+  - Qtech
+  - Onboarding
+  - Networking
+---
 /
 
 Ran a command, viewed a file

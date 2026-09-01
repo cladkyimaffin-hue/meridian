@@ -1,16 +1,54 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Windows Server 2022 (vmSAPP, IP: 192.168.12.53)"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Пошаговая инструкция по развертыванию RemoteApp для внутреннего использования"
-status: "in_progress"
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Windows Server 2022 (vmSAPP, IP: 192.168.12.53, Role: Session Host)"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость первоначального развертывания ролей служб удаленных рабочих столов (RDS) на новом сервере."
+solution: "Установка ролей Remote Desktop Session Host и Remote Desktop Web Access через Server Manager или PowerShell, создание базовой коллекции приложений."
+root_cause: "Неприменимо (стандартная процедура развертывания)."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Пошаговое руководство по базовой установке и конфигурации ролей RDS на Windows Server 2022. Охватывает добавление компонентов через Server Manager и первичную инициализацию коллекции сеансов."
+key_takeaways:
+  - "Роли Session Host и Web Access должны устанавливаться согласованно для корректной работы веб-доступа."
+  - "Коллекция создается до публикации конкретных приложений."
+dont_repeat:
+  - "Не предлагать установку роли Remote Desktop Connection Broker, если развертывание выполняется на одиночном сервере (не в ферме)."
+assumptions:
+  - "Сервер уже присоединен к домену, имеет статический IP-адрес и актуальные обновления ОС."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Пример установки ролей через PowerShell (альтернатива GUI)
+  Install-WindowsFeature RDS-RD-Server, RDS-Web-Access -IncludeManagementTools
+config_snippets:
+  server_manager_roles: |
+    Remote Desktop Services Installation -> Standard deployment
+    Roles: Remote Desktop Session Host, Remote Desktop Web Access
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
   - "Настройка RemoteApp на Windows Server 2022 #2.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - RDS
-  - RemoteApp
-  - WindowsServer2022
-  - Инструкция
+  - "RDS"
+  - "RemoteApp"
+  - "Setup"
+  - "WindowsServer2022"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 
 # Заголовок вашей инструкции (например: Часть 1. Установка ролей)

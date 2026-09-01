@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82, VM wmswifi (192.168.12.154)"
+author: cladkyimaffin-hue
+purpose: "Сводный протокол для передачи контекста в новую сессию: архитектура, решенные проблемы и текущие гипотезы по офлайн-статусу ТД"
+status: "completed"
+related_files:
+  - "Визуализация архитектуры Wimark ONE.md"
+tags:
+  - Troubleshooting
+  - Documentation
+  - Context-Switch
+---
 # Протокол диагностики Wimark ONE — для новой сессии
 
 ## 1. Архитектура и окружение

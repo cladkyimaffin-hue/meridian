@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Wimark ONE, QTECH QWP-82"
+author: cladkyimaffin-hue
+purpose: "Финальный этап восстановления работы точек доступа Qtech после масштабного сбоя"
+status: "completed"
+related_files:
+  - "Qtech - востановление после сбоя №4.md"
+tags:
+  - Qtech
+  - Recovery
+  - Troubleshooting
+---
 Шаг 1 — точка 192.168.12.165, логи её IPsec-клиента
 
 Уверенность в формулировке шага: 95% — это согласовано как первый шаг предыдущей сессии. Уверенность в результате — 0%, пока не проверено.

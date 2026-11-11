@@ -2,10 +2,10 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-11-09
-date_modified: 2026-11-10
+date_modified: 2026-11-12
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
-confidence: "Блок 1 выполнялся в сессии 2026-11-09. Блоки 2–3 и 4–6 перенесены из документов домена и чата Servers; где дословная строка запуска не сохранилась, это указано в блоке. Источник документов — MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001."
+confidence: "Блок 1 выполнялся в сессии 2026-11-09. Блоки 2–3 и 4–6 перенесены из документов домена и чата Servers; где дословная строка запуска не сохранилась, это указано в блоке. Блоки 7–9 выполнялись в сессии 2026-11-11 (значения заменены плейсхолдерами). Источники — MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001 и MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001."
 ---
 
 # COMMANDS.md — команды мониторинга (Prometheus, Grafana, Docker, Windows, MS SQL)
@@ -188,7 +188,7 @@ sudo systemctl stop <служба>
 
 ## 6. windows_exporter и проверка метрик
 
-Источник — `MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001`.
+Источник — `MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001`. Полные строки для `wmsDB` — в блоке 8.
 
 ```text
 # [W] Свойства установки MSI windows_exporter 0.32 — MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001
@@ -203,9 +203,138 @@ LISTEN_PORT=9182
 windows_mssql_genstats_user_connections
 ```
 
+## 7. Prometheus: цели и проверки (`wmssql-analytics`)
+
+Источник — `MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001`; выполнялось 2026-11-11.
+
+```bash
+# [W] Добавить цель Windows-сервера в file_sd — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Сначала копия файла. Prometheus подхватывает без перезапуска; цель down, пока на сервере нет exporter
+cd /opt/monitoring/prometheus/targets && cp -p windows.yml windows.yml.bak-<ГГГГММДД>
+printf '%s\n' '- targets: ["<IP_сервера>:9182"]' '  labels:' '    host: <имя>' '    role: mssql' >> windows.yml
+```
+
+```text
+# [W] Добавить метку title (отображаемое имя) к цели — выполнялось
+# Правка файла windows.yml: строка `    title: "<отображаемое имя>"` под `role: ...` нужной цели. Перед правкой копия файла. Метку host не менять: потеряется история рядов
+```
+
+```bash
+# [R] Состояние целей Prometheus — выполнялось
+curl -s --max-time 10 http://127.0.0.1:9090/api/v1/targets | python3 -c "import sys,json; d=json.load(sys.stdin); [print(t['labels'].get('host'), t['scrapeUrl'], t['health'], (t.get('lastError') or '')[:80]) for t in d['data']['activeTargets']]"
+```
+
+```bash
+# [R] Открыт ли порт на сервере с wmssql-analytics — выполнялось
+for p in 1433 9182; do timeout 5 bash -c "echo > /dev/tcp/<IP_сервера>/$p" 2>/dev/null && echo "$p OPEN" || echo "$p CLOSED"; done
+```
+
+```bash
+# [R] Запрос PromQL через API (число серий и пример) — выполнялось
+# Для серий с составными запросами использовать --data-urlencode
+curl -s --max-time 10 --data-urlencode 'query=count({host="<имя>"})' http://127.0.0.1:9090/api/v1/query
+```
+
+## 8. wmsDB: windows_exporter (Windows, PowerShell)
+
+Источник — `MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001`; выполнялось 2026-11-11.
+
+```text
+# [R] Контрольная сумма MSI — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Сравнить со строкой windows_exporter-0.32.0-amd64.msi в sha256sums.txt релиза v0.32.0 (github.com/prometheus-community/windows_exporter)
+Get-FileHash 'C:\Temp\windows_exporter-0.32.0-amd64.msi' -Algorithm SHA256
+```
+
+```text
+# [W] Установка MSI с коллекторами — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось; свойство REMOTE_ADDR правило фаервола не создало)
+# Код возврата 0, служба windows_exporter Running. В PowerShell: Start-Process msiexec.exe -ArgumentList <массив аргументов> -Wait -PassThru
+msiexec.exe /i C:\Temp\windows_exporter-0.32.0-amd64.msi ENABLED_COLLECTORS=cpu,logical_disk,physical_disk,memory,net,os,service,system,tcp,mssql LISTEN_PORT=9182 /qn /norestart /l*v C:\Temp\we_install.log
+```
+
+```text
+# [W] Правило Windows Firewall: вход только с адреса Prometheus — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Откат: Remove-NetFirewallRule -DisplayName '<то же имя>' (по подтверждению администратора)
+New-NetFirewallRule -DisplayName 'windows_exporter (Prometheus <IP_Prometheus>)' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 9182 -RemoteAddress <IP_Prometheus> -Profile Any
+```
+
+```text
+# [R] Адрес и порт правила — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Не передавать вывод Get-NetFirewallPortFilter конвейером в Get-NetFirewallAddressFilter: ошибка AmbiguousParameterSet
+$r = Get-NetFirewallRule -DisplayName 'windows_exporter (Prometheus <IP_Prometheus>)'; (Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $r).RemoteAddress; (Get-NetFirewallPortFilter -AssociatedNetFirewallRule $r).LocalPort
+```
+
+```text
+# [W] Дополнительные коллекторы: переустановка MSI, config.yaml с фильтрами, перезапуск службы — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Перед правкой config.yaml сделать копию. Конфиг записывался после переустановки MSI, в ASCII без BOM. Пути задач планировщика в метках с прямыми слэшами
+msiexec.exe /i C:\Temp\windows_exporter-0.32.0-amd64.msi ENABLED_COLLECTORS=cpu,logical_disk,physical_disk,memory,net,os,service,system,tcp,mssql,process,time,scheduled_task LISTEN_PORT=9182 /qn /norestart /l*v C:\Temp\we_install2.log
+# Содержимое C:\Program Files\windows_exporter\config.yaml, затем Restart-Service windows_exporter:
+#   collector:
+#     process:
+#       include: 'sqlservr|windows_exporter'
+#     scheduled_task:
+#       exclude: '/Microsoft/.*'
+```
+
+```text
+# [R] Передача скрипта PowerShell через SSH-оболочку cmd без проблем с кавычками — приём (выполнялся)
+# cmd режет команду по символу | внутри кавычек. Лимит командной строки cmd около 8191 символов. Строка #< CLIXML в stderr — индикатор прогресса PowerShell, не ошибка
+# Шаг 1 (Linux): закодировать скрипт в UTF-16LE и base64
+python3 -c "import base64,sys; print(base64.b64encode(open(sys.argv[1],encoding='utf-8').read().encode('utf-16-le')).decode())" script.ps1
+# Шаг 2 (на Windows через SSH): выполнить
+powershell -NoProfile -EncodedCommand <base64>
+```
+
+```text
+# [R] Журнал SQL Server: последние отказы входа — MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 (выполнялось)
+# Путь ERRORLOG берётся из параметров запуска службы (реестр, параметр -e). Текст причины в журнале в CP866: при чтении по SSH показывается кракозябрами
+Get-Content '<путь_к_ERRORLOG>' -Tail 400 | Where-Object { $_ -match 'Login failed' } | Select-Object -Last 8
+```
+
+## 9. wmssql-analytics: sqlcmd, вход в SQL, дашборды Grafana
+
+Источник — `MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001` и `MONITORING-DASHBOARD-WMSDB-SERVER-2026-001`; выполнялось 2026-11-11.
+
+```bash
+# [W] Установить sqlcmd (go-sqlcmd) без вопросов — выполнялось (репозиторий Microsoft уже был подключён)
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y sqlcmd < /dev/null
+```
+
+```bash
+# [W] Положить пароль читающего SQL-логина в файл на сервере — выполняет администратор вручную (выполнялось)
+# Значение пароля вводится с клавиатуры без эха и не попадает в чат и репозиторий. Файл: владелец root, права 600; каталог права 700
+sudo install -d -m 700 /opt/monitoring/secrets && read -rs -p 'Password: ' P && printf '%s' "$P" | sudo tee /opt/monitoring/secrets/<файл>.pass >/dev/null && unset P && sudo chmod 600 /opt/monitoring/secrets/<файл>.pass
+```
+
+```bash
+# [R] Проверка входа читающего логина и его прав — выполнялось
+# Пароль берётся из файла внутри команды через переменную окружения и не печатается. Одна попытка: каждый отказ пишется в журнал SQL Server. Если вход не прошёл, сначала прочитать причину в журнале (блок 8)
+SQLCMDPASSWORD="$(sudo cat /opt/monitoring/secrets/<файл>.pass)" sqlcmd -S <IP_сервера>,1433 -U <логин> -d <база> -C -l 10 -W -s "|" -Q "SET NOCOUNT ON; SELECT SUSER_NAME(), DB_NAME(), IS_SRVROLEMEMBER('sysadmin'), HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER STATE'), SERVERPROPERTY('ProductVersion'), SERVERPROPERTY('Edition');" < /dev/null
+```
+
+```bash
+# [R] Поиск дашбордов в Grafana через API; пароль берётся из .env и не печатается — выполнялось
+# Переменная в .env называется GF_ADMIN_PASSWORD; имя учётной записи администратора Grafana — в приватном реестре
+PW="$(sudo grep -E '^GF_ADMIN_PASSWORD=' /opt/monitoring/.env | cut -d= -f2-)"
+curl -s --max-time 10 -u "<админ_Grafana>:$PW" 'http://127.0.0.1:3000/api/search?query=<текст>'
+```
+
+```bash
+# [W] Переименовать дашборд, подключённый из файла (provisioning) — выполнялось
+# Сначала копия. Менять только строку title (проверить, что она встречается один раз). uid не менять. Grafana подхватывает файл в течение минуты. Правки в интерфейсе Grafana для таких дашбордов не сохраняются
+cd /opt/monitoring/grafana/dashboards && cp -p <файл>.json <файл>.json.bak-<ГГГГММДД>
+grep -n '"title": "<старое имя>"' <файл>.json
+sed -i '<номер_строки>s/"title": "<старое имя>"/"title": "<новое имя>"/' <файл>.json
+```
+
+```bash
+# [W] Разместить дашборд, собранный генератором — MONITORING-DASHBOARD-WMSDB-SERVER-2026-001 (выполнялось)
+# Новый файл рядом с остальными; существующие не затрагиваются. Откат: удалить файл. Подхват до минуты
+python3 /opt/monitoring/tools/dashboards/gen_server.py /tmp/<выходной>.json && cp /tmp/<выходной>.json /opt/monitoring/grafana/dashboards/<имя>.json
+```
+
 ## Покрытие
 
-В файле только то, что выполнено или описано в материалах. **Не записаны**, потому что дословных строк нет: полная команда установки `windows_exporter` (`msiexec`), правило Windows Firewall, правило `ufw`, содержимое `docker-compose.yml` и `prometheus.yml`, запросы PromQL дашборда, скрипт создания читающего SQL-логина. Их нужно добавить после обработки соответствующих материалов.
+В файле только то, что выполнено или описано в материалах. Записаны полные строки установки `windows_exporter` (`msiexec`), правила Windows Firewall и добавления цели для `wmsDB` (блоки 7–9). **Не записаны**, потому что дословных строк нет или они выполнялись администратором вне чата: правило `ufw`, содержимое `docker-compose.yml` и `prometheus.yml`, запросы PromQL дашборда «wmsDB: Сервер» (они в генераторе `/opt/monitoring/tools/dashboards/gen_server.py` и в JSON дашборда), скрипт создания читающего SQL-логина (создан администратором). Генератор старого дашборда «ТЕСТ (wmsDB-TEST): Windows Server + MS SQL» не сохранился (INFERRED).
 
 ## Как дополнять
 

@@ -14,7 +14,7 @@ maintainer: "cladkyimaffin-hue"
 ## Группы тегов (первичный набор, дополняется по ходу разбора)
 
 ### Платформа и компоненты
-`Monitoring` · `Prometheus` · `Grafana` · `Docker` · `Node-Exporter` · `Windows-Exporter` · `Alertmanager` · `Zabbix`
+`Monitoring` · `Prometheus` · `Grafana` · `Docker` · `Node-Exporter` · `Windows-Exporter` · `Alertmanager` · `Zabbix` · `Vaultwarden` · `Caddy`
 
 ### Наблюдаемые объекты
 `Windows-Server` · `Hyper-V` · `Ubuntu` · `MS-SQL`

@@ -2,13 +2,13 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-11-09
-date_modified: 2026-11-12
+date_modified: 2026-11-13
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
-confidence: "Блок 1 выполнялся в сессии 2026-11-09. Блоки 2–3 и 4–6 перенесены из документов домена и чата Servers; где дословная строка запуска не сохранилась, это указано в блоке. Блоки 7–9 выполнялись в сессии 2026-11-11 (значения заменены плейсхолдерами). Источники — MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001 и MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001."
+confidence: "Блок 1 выполнялся в сессии 2026-11-09. Блоки 2–3 и 4–6 перенесены из документов домена и чата Servers; где дословная строка запуска не сохранилась, это указано в блоке. Блоки 7–9 выполнялись в сессии 2026-11-11, блоки 10–11 — в сессиях 2026-11-12 и 2026-11-13 (значения заменены плейсхолдерами). Источники — MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001, MONITORING-WINDOWS-EXPORTER-WMSDB-2026-001 и MONITORING-VAULTWARDEN-SETUP-2026-001."
 ---
 
-# COMMANDS.md — команды мониторинга (Prometheus, Grafana, Docker, Windows, MS SQL)
+# COMMANDS.md — команды мониторинга (Prometheus, Grafana, Docker, Windows, MS SQL, Vaultwarden)
 
 Справочник команд, к которым нужно возвращаться, отдельно от описаний. Команды остаются и в своих документах (там контекст, ожидаемый вывод и ограничения), здесь — быстрый доступ, сгруппированный по задачам.
 
@@ -332,9 +332,226 @@ sed -i '<номер_строки>s/"title": "<старое имя>"/"title": "<�
 python3 /opt/monitoring/tools/dashboards/gen_server.py /tmp/<выходной>.json && cp /tmp/<выходной>.json /opt/monitoring/grafana/dashboards/<имя>.json
 ```
 
+## 10. Сервер паролей Vaultwarden (`wmssql-analytics`)
+
+Источник — `MONITORING-VAULTWARDEN-SETUP-2026-001`; выполнялось 2026-11-12.
+
+```bash
+# [R] Проверка условий перед установкой: порты, ресурсы, время, реестры образов — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+ss -ltnH | awk '{print $4}' | sort -u
+free -m | sed -n '1,2p'; df -h / | tail -1
+timedatectl | grep -E 'System clock synchronized|NTP service'
+for u in https://registry-1.docker.io/v2/ https://ghcr.io/v2/; do curl -4 -sS -o /dev/null -m 12 -w "$u %{http_code} %{time_total}s\n" "$u"; done
+```
+
+```bash
+# [R] Какие версии образа есть в ghcr.io (анонимный токен только на чтение) — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+TOK=$(curl -s 'https://ghcr.io/token?service=ghcr.io&scope=repository:dani-garcia/vaultwarden:pull' | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+curl -s -H "Authorization: Bearer $TOK" 'https://ghcr.io/v2/dani-garcia/vaultwarden/tags/list?n=1000'
+```
+
+```bash
+# [W] Скачать образы — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось; откат: docker rmi <образ>)
+# Docker Hub с этого сервера нестабилен (DNS по таймауту): при ошибке повторить pull. Образ Caddy фиксировать по digest
+sudo docker pull ghcr.io/dani-garcia/vaultwarden:<версия> < /dev/null
+sudo docker pull caddy:2 < /dev/null
+sudo docker image inspect caddy:2 --format '{{index .RepoDigests 0}}'
+```
+
+```text
+# [W] Содержимое /opt/vaultwarden/docker-compose.yml (без секретов) — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Каталоги создать заранее: data (права 700), caddy-data, caddy-config, secrets (права 700)
+name: vaultwarden
+services:
+  vaultwarden:
+    image: ghcr.io/dani-garcia/vaultwarden:<версия>
+    container_name: vaultwarden
+    restart: unless-stopped
+    env_file: ./vaultwarden.env
+    environment:
+      DOMAIN: "https://<IP_сервера>:<порт>"
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      SHOW_PASSWORD_HINT: "false"
+    volumes:
+      - ./data:/data
+    mem_limit: 256m
+    networks: [vwnet]
+  caddy:
+    image: caddy@sha256:<digest>
+    container_name: vaultwarden-caddy
+    restart: unless-stopped
+    ports:
+      - "<порт>:<порт>"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    mem_limit: 128m
+    depends_on: [vaultwarden]
+    networks: [vwnet]
+networks:
+  vwnet: {}
+```
+
+```text
+# [W] Содержимое /opt/vaultwarden/Caddyfile — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# default_sni нужен: без него заход по IP даёт TLS-ошибку internal error (контейнер видит свой адрес). После правки: cp -p Caddyfile Caddyfile.bak-<ГГГГММДД> и docker compose restart caddy
+{
+	admin off
+	default_sni <IP_сервера>
+}
+
+https://<IP_сервера>:<порт> {
+	tls internal
+	encode zstd gzip
+	reverse_proxy vaultwarden:80
+}
+```
+
+```bash
+# [W] Токен администратора и его хеш Argon2id без печати значений — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось; требуется пакет argon2)
+# Токен и хеш не печатать, в том числе через sed «с маскировкой»: маскировка может не сработать. Проверять только по коду ответа и логу
+umask 077
+TOKEN=$(openssl rand -base64 36 | tr -d '\n')
+printf '%s' "$TOKEN" > /opt/vaultwarden/secrets/admin_token.txt
+HASH=$(printf '%s' "$TOKEN" | argon2 "$(openssl rand -hex 8)" -id -t 3 -m 16 -p 4 -l 32 -e)
+printf "ADMIN_TOKEN='%s'\n" "$HASH" > /opt/vaultwarden/vaultwarden.env
+unset TOKEN HASH
+chmod 600 /opt/vaultwarden/vaultwarden.env /opt/vaultwarden/secrets/admin_token.txt
+```
+
+```bash
+# [W] Запуск и пересоздание сервиса — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# После смены vaultwarden.env нужно пересоздать контейнер (restart env_file не перечитывает). Откат: docker compose down
+cd /opt/vaultwarden && sudo docker compose up -d < /dev/null
+cd /opt/vaultwarden && sudo docker compose up -d --force-recreate vaultwarden < /dev/null
+```
+
+```bash
+# [R] Проверка сайта и токена администратора — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Код 200 при верном токене (страница админки и cookie, не 303), 401 при неверном. Токен читается из файла без вывода
+curl -k -sS -m 10 https://<IP_сервера>:<порт>/alive
+sudo curl -k -sS -m 15 -o /dev/null -w '%{http_code}\n' --data-urlencode 'token@/opt/vaultwarden/secrets/admin_token.txt' https://<IP_сервера>:<порт>/admin
+```
+
+```bash
+# [R] Корневой сертификат Caddy и сертификат сайта — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Корень публичный (не секрет), его нужно установить на каждый ПК. Ключ root.key лежит рядом и в копии не копируется
+R=/opt/vaultwarden/caddy-data/caddy/pki/authorities/local/root.crt
+sudo openssl x509 -in "$R" -noout -subject -dates -fingerprint -sha256
+echo | openssl s_client -connect 127.0.0.1:<порт> -servername <IP_сервера> 2>/dev/null | openssl x509 -noout -issuer -dates -ext subjectAltName
+```
+
+```bash
+# [D] Удалить файлы прежнего токена и env после ротации — MONITORING-VAULTWARDEN-SETUP-2026-001 (REQUIRES_APPROVAL; выполнялось по решению администратора 2026-11-12/13)
+# shred перезаписывает файл перед удалением; восстановить удалённое нельзя
+sudo shred -u <файл_env.old-ГГГГММДД> <файл_токена.old-ГГГГММДД>
+```
+
+## 11. Резервная копия базы Vaultwarden (`wmssql-analytics`)
+
+Источник — `MONITORING-VAULTWARDEN-SETUP-2026-001`; выполнялось 2026-11-13.
+
+```bash
+# [R] Проверка шары перед настройкой — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Пароли и имена учётных записей из параметров монтирования не печатать: фильтровать только нужные ключи
+findmnt -no FSTYPE,SIZE,USED,AVAIL /mnt/wmsbackup
+findmnt -no OPTIONS /mnt/wmsbackup | tr ',' '\n' | grep -E '^(vers|file_mode|dir_mode|rw|ro)'
+```
+
+```bash
+# [W] Скрипт /opt/vaultwarden/backup.sh (владелец root, права 700) — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Копия делается через API резервного копирования SQLite (без остановки сервиса). Ротация: оставить 7 самых новых по времени изменения, остальные удалить (решение администратора)
+#!/bin/bash
+set -euo pipefail
+SRC=/opt/vaultwarden/data
+MNT=/mnt/wmsbackup
+DEST=$MNT/vaultwarden
+KEEP=7
+ls "$MNT" >/dev/null 2>&1 || true
+mountpoint -q "$MNT" || { echo "ОШИБКА: шара $MNT не смонтирована" >&2; exit 1; }
+mkdir -p "$DEST"
+TMP=$(mktemp -d /var/tmp/vwbackup.XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
+python3 - "$SRC" "$TMP" <<'PY'
+import sqlite3, sys, json, os, shutil
+src, tmp = sys.argv[1], sys.argv[2]
+s = sqlite3.connect(os.path.join(src, 'db.sqlite3'))
+d = sqlite3.connect(os.path.join(tmp, 'db.sqlite3'))
+with d:
+    s.backup(d)
+res = d.execute('PRAGMA integrity_check').fetchone()[0]
+s.close(); d.close()
+if res != 'ok':
+    sys.exit('ОШИБКА: integrity_check = %s' % res)
+for name in ('attachments', 'sends'):
+    p = os.path.join(src, name)
+    if os.path.isdir(p):
+        shutil.copytree(p, os.path.join(tmp, name))
+cfg = os.path.join(src, 'config.json')
+if os.path.isfile(cfg):
+    keys = list(json.load(open(cfg)).keys())
+    bad = [k for k in keys if any(w in k.lower() for w in ('pass', 'token', 'secret', 'key'))]
+    if bad:
+        print('config.json не включён: есть чувствительные ключи (%d)' % len(bad))
+    else:
+        shutil.copy2(cfg, os.path.join(tmp, 'config.json'))
+        print('config.json включён')
+PY
+NAME="db_passwd_$(date +%d.%m.%Y).tar.gz"
+( cd "$TMP" && tar -czf "$TMP/$NAME" $(ls -d db.sqlite3 attachments sends config.json 2>/dev/null) )
+tar -tzf "$TMP/$NAME" >/dev/null
+cp "$TMP/$NAME" "$DEST/$NAME.part"
+mv -f "$DEST/$NAME.part" "$DEST/$NAME"
+ls -1t "$DEST"/db_passwd_*.tar.gz | tail -n +$((KEEP+1)) | xargs -r rm -f --
+echo "OK: $NAME, $(stat -c %s "$DEST/$NAME") байт; копий в папке: $(ls -1 "$DEST"/db_passwd_*.tar.gz | wc -l)"
+```
+
+```text
+# [W] Служба и таймер systemd — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# /etc/systemd/system/vaultwarden-backup.service:
+[Unit]
+Description=Резервная копия базы Vaultwarden на сетевую шару
+After=network-online.target remote-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vaultwarden/backup.sh
+
+# /etc/systemd/system/vaultwarden-backup.timer:
+[Unit]
+Description=Ежедневная копия базы Vaultwarden
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+# [W] Включить таймер и делать пробный запуск — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Откат: systemctl disable --now vaultwarden-backup.timer
+sudo systemctl daemon-reload && sudo systemctl enable --now vaultwarden-backup.timer
+sudo systemctl start vaultwarden-backup.service
+sudo journalctl -u vaultwarden-backup.service -n 6 --no-pager -o cat
+systemctl list-timers vaultwarden-backup.timer --no-pager
+```
+
+```bash
+# [R] Проверка архива без вывода содержимого — MONITORING-VAULTWARDEN-SETUP-2026-001 (выполнялось)
+# Показывает только целостность и количества строк. Восстановление из копии полностью не проверялось
+tar -tzf /mnt/wmsbackup/vaultwarden/db_passwd_<ДД.ММ.ГГГГ>.tar.gz
+T=$(mktemp -d /var/tmp/vwchk.XXXXXX); tar -xzf /mnt/wmsbackup/vaultwarden/db_passwd_<ДД.ММ.ГГГГ>.tar.gz -C "$T" db.sqlite3
+python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute('PRAGMA integrity_check').fetchone()[0]); [print(t, c.execute('SELECT count(*) FROM '+t).fetchone()[0]) for t in ('users','ciphers','folders')]" "$T/db.sqlite3"; sudo rm -rf "$T"
+```
+
 ## Покрытие
 
-В файле только то, что выполнено или описано в материалах. Записаны полные строки установки `windows_exporter` (`msiexec`), правила Windows Firewall и добавления цели для `wmsDB` (блоки 7–9). **Не записаны**, потому что дословных строк нет или они выполнялись администратором вне чата: правило `ufw`, содержимое `docker-compose.yml` и `prometheus.yml`, запросы PromQL дашборда «wmsDB: Сервер» (они в генераторе `/opt/monitoring/tools/dashboards/gen_server.py` и в JSON дашборда), скрипт создания читающего SQL-логина (создан администратором). Генератор старого дашборда «ТЕСТ (wmsDB-TEST): Windows Server + MS SQL» не сохранился (INFERRED).
+В файле только то, что выполнено или описано в материалах. Записаны полные строки установки `windows_exporter` (`msiexec`), правила Windows Firewall и добавления цели для `wmsDB` (блоки 7–9), а также установки сервера паролей и резервной копии (блоки 10–11; в блоке 10 адрес и порт заменены плейсхолдерами). **Не записаны**, потому что дословных строк нет или они выполнялись администратором вне чата: правило `ufw`, содержимое `docker-compose.yml` и `prometheus.yml` стека мониторинга, запросы PromQL дашборда «wmsDB: Сервер» (они в генераторе `/opt/monitoring/tools/dashboards/gen_server.py` и в JSON дашборда), скрипт создания читающего SQL-логина (создан администратором), и настройка клиента Bitwarden на ПК (делает пользователь в интерфейсе). Генератор старого дашборда «ТЕСТ (wmsDB-TEST): Windows Server + MS SQL» не сохранился (INFERRED).
 
 ## Как дополнять
 

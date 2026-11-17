@@ -24,6 +24,7 @@ source_of_truth: "00_Meta/registry.csv"
 | [Установка сервера паролей Vaultwarden на wmssql-analytics](<01_Architecture/Установка сервера паролей Vaultwarden на wmssql-analytics.md>) | setup | completed | Vaultwarden 1.37.5 за Caddy в Docker, адрес и порт, токен администратора, клиент на ПК, ежедневная копия базы на шару, откат, решения и риски |
 | [Страница-витрина дашбордов и публичные ссылки Grafana](<01_Architecture/Страница-витрина дашбордов и публичные ссылки Grafana.md>) | setup | in_progress | Страница `http://192.168.12.202` (Caddy, порт 80) со ссылками на публичные дашборды Grafana: решения администратора, устройство, токены (где хранятся), правка двух дашбордов под публичные ссылки, риски |
 | [Установка windows_exporter на wmsAPP и HostWMS](<02_Exporters/Установка windows_exporter на wmsAPP и HostWMS.md>) | setup | completed | Exporter 0.32.0 на сервере приложений и на хосте Hyper-V (сборщик hyperv): только отличия от `wmsDB`, метки, проверка, откат |
+| [Дашборды wmsAPP, HostWMS, Wi-Fi и wmsWiFi: состав и пороги](<04_Dashboards/Дашборды wmsAPP HostWMS Wi-Fi и wmsWiFi состав и пороги.md>) | reference | in_progress | Четыре дашборда из генераторов: разделы, пороги (предложены, не утверждены), правки по замечаниям, ошибки VHDX и ISO, ограничения |
 
 ## Служебные файлы домена
 

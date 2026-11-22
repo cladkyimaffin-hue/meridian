@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
-import html
 import logging
 import urllib.parse
+from pathlib import Path
 
 import pyodbc
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db
@@ -139,17 +140,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         headers = {"Content-Disposition": "attachment; filename=\"export.xlsx\"; filename*=UTF-8''" + urllib.parse.quote(fname)}
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        resp = await call_next(request)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+        resp.headers.setdefault("Cache-Control", "no-store")
+        return resp
+
+    static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    @app.get("/", include_in_schema=False)
     def index():
-        # Временная страница каркаса: список меню. Интерфейс с вкладками - следующий шаг.
-        items = []
-        for sec in registry.menu():
-            items.append(f"<h2>{html.escape(sec['title'])}</h2>")
-            for g in sec["groups"]:
-                items.append(f"<h3>{html.escape(g['title'])}</h3><ul>")
-                items += [f"<li>{html.escape(q['title'])} <code>{html.escape(q['id'])}</code></li>" for q in g["queries"]]
-                items.append("</ul>")
-        body = "".join(items) or "<p>Запросов пока нет.</p>"
-        return f"<!doctype html><meta charset=utf-8><title>Конструктор LV_MERIDIAN</title><h1>Конструктор запросов LV_MERIDIAN</h1><p>Каркас: интерфейс с вкладками будет следующим шагом.</p>{body}"
+        return FileResponse(static_dir / "index.html")
 
     return app

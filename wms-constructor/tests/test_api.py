@@ -31,3 +31,13 @@ def test_meta_and_options_and_404():
 def test_run_without_db_credentials_is_clean_error():
     r = client().post("/api/queries/sample.one/run", json={"params": {}})
     assert r.status_code == 400 and "MSSQL_HOST" in r.json()["error"]
+
+
+def test_index_static_and_security_headers():
+    c = client()
+    r = c.get("/")
+    assert r.status_code == 200 and 'id="menu"' in r.text
+    assert "default-src 'self'" in r.headers["content-security-policy"]
+    js = c.get("/static/app.js")
+    assert js.status_code == 200 and "openQuery" in js.text
+    assert c.get("/static/style.css").status_code == 200

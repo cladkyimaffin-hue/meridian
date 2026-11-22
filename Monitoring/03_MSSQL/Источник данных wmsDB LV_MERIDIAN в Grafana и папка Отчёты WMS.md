@@ -38,7 +38,7 @@ last_verified: 2026-11-18
 
 ## Что настраивается и зачем
 
-Подготовка к запуску обмена с 1С ERP: Grafana читает базу WMS, чтобы по её таблицам строить складские отчёты. Решения администратора 2026-11-17: работать с боевой `wmsDB` (не с `wmsDB-TEST`); читающий SQL-логин уже создан для чтения таблиц (имя и пароль — только в приватном `meridian-secrets`, `MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001` и файл фактов); порядок — сначала исследуем таблицы и возможные отчёты, потом делаем дашборды. Цель: подготовиться к запуску базы, наладить отчёты и разобраться в таблицах и их связях.
+Подготовка к запуску обмена с 1С ERP: Grafana читает базу WMS, чтобы по её таблицам строить складские отчёты. Решения администратора 2026-11-17: работать с боевой `wmsDB` (не с `wmsDB-TEST`); читающий SQL-логин уже создан для чтения таблиц (имя и пароль — только в приватном `meridian-secrets`, см. `MONITORING-PROMETHEUS-GRAFANA-SETUP-2026-001` и файл фактов); порядок — сначала исследуем таблицы и возможные отчёты, потом делаем дашборды. Цель: подготовиться к запуску базы, наладить отчёты и разобраться в таблицах и их связях.
 
 ## Состояние базы (VERIFIED, 2026-11-17, только чтение)
 
@@ -49,16 +49,16 @@ last_verified: 2026-11-18
 ## Права читающего логина
 
 - В `LV_MERIDIAN`: роль `db_datareader` и `VIEW DEFINITION` (выданы ранее администратором). Вход с `wmssql-analytics` через `sqlcmd` работает, чтение проверено (VERIFIED 2026-11-17). Право `VIEW DATABASE STATE` не выдано.
-- В `MRDN_Exchange`: доступа не было. Администратор поручил «дать всё необходимое»; сведено к минимуму (чтение данных и схемы), скрипт подготовил Claude, выполнил администратор под учётной записью с правами `sysadmin` (2026-11-17) [W]:
+- В `MRDN_Exchange`: доступа не было. Администратор поручил «дать всё необходимое»; сведено к минимуму (чтение данных и схемы), скрипт подготовил Claude, выполнил администратор под учётной записью с правами `sysadmin` (2026-11-17) [W]; вместо `<читающий_логин>` подставляется имя из приватного реестра:
 
   ```sql
   USE MRDN_Exchange;
-  CREATE USER grafana_ro FOR LOGIN grafana_ro;
-  ALTER ROLE db_datareader ADD MEMBER grafana_ro;
-  GRANT VIEW DEFINITION TO grafana_ro;
+  CREATE USER <читающий_логин> FOR LOGIN <читающий_логин>;
+  ALTER ROLE db_datareader ADD MEMBER <читающий_логин>;
+  GRANT VIEW DEFINITION TO <читающий_логин>;
   ```
 
-  Вход в `MRDN_Exchange` и членство в `db_datareader` проверены (VERIFIED). Откат: `DROP USER grafana_ro` в этой базе (под `sysadmin`, [D]).
+  Вход в `MRDN_Exchange` и членство в `db_datareader` проверены (VERIFIED). Откат: `DROP USER <читающий_логин>` в этой базе (под `sysadmin`, [D]).
 
 ## Шаги на `wmssql-analytics` [W]
 
@@ -76,7 +76,7 @@ last_verified: 2026-11-18
 7. `grafana/provisioning/dashboards/dashboards.yml`: второй источник дашбордов «reports» с папкой Grafana «Отчёты WMS» (копия `dashboards.yml.bak-2026-11-18`).
 8. Контейнер `grafana` пересоздан ещё раз (простой несколько секунд). Название папки выбрал Claude, администратор утвердил («папка подойдёт»). Папка «Monitoring» осталась только для мониторинга серверов.
 
-Дашборды в папке — в `MONITORING-DASHBOARDS-WMS-REPORTS-2026-001`.
+Дашборды в папке — в отдельном документе каталога `04_Dashboards` (создаётся следующим шагом работ).
 
 ## Проверка результата (VERIFIED, 2026-11-17 и 2026-11-18)
 
@@ -90,7 +90,7 @@ last_verified: 2026-11-18
 Классы [W] и [D], только по подтверждению администратора:
 - Источник: удалить `grafana/provisioning/datasources/wmsdb-lv-meridian.yml`, вернуть `docker-compose.yml` и `.env` из копий `*.bak-2026-11-17`, выполнить `docker compose up -d grafana`.
 - Папка «Отчёты WMS»: вернуть `dashboards.yml` и `docker-compose.yml` из копий `*.bak-2026-11-18`, каталог `dashboards-reports` убрать (в нём дашборды), `docker compose up -d grafana`.
-- Разрешения в `MRDN_Exchange`: `DROP USER grafana_ro` (под `sysadmin`).
+- Разрешения в `MRDN_Exchange`: см. выше (`DROP USER`, под `sysadmin`).
 
 ## Решения и риски
 

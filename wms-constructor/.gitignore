@@ -1,0 +1,47 @@
+# --- Секреты (репозиторий публичный: сюда секреты не попадают никогда) ---
+.env
+.env.*
+!.env.example
+*.env
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.kdbx
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# --- Выгрузки и данные склада (КМ, сотрудники и т.п.) ---
+exports/
+output/
+/data/
+*.xlsx
+*.xls
+*.csv
+*.bak
+*.sql.bak
+
+# --- Логи и временное ---
+logs/
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# --- Редакторы ---
+.vscode/
+.idea/

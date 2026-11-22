@@ -1,0 +1,13 @@
+services:
+  wms-constructor:
+    build: .
+    image: wms-constructor:dev
+    container_name: wms-constructor
+    # Секреты (пароль БД) - вне репозитория
+    env_file: /opt/wms-constructor-secrets/app.env
+    environment:
+      QUERIES_DIR: /app/queries
+    # По умолчанию слушаем только localhost. Для локальной сети задайте BIND_ADDR=<адрес сервера> (отдельное решение).
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8080:8000"
+    restart: unless-stopped

@@ -1,0 +1,143 @@
+section: stock-issues
+title: 'Остатки: проблемные'
+source_dashboard: wms-stock-issues
+variables: {}
+queries:
+- id: stock-issues.12-1
+  title: 'Остатки: сводка'
+  group: Обзор проблемных остатков
+  kind: сводка
+  description: |
+    Что показывает: Сколько строк остатков, сколько товаров, и сколько проблемных: отрицательных, с резервом, непригодных.
+    Как считается: по всем строкам LV_Stock; «Ячеек с проблемами» это ячейки, где есть хотя бы один проблемный остаток.
+    Примечание: Остатки это текущее состояние, а не история.
+  sql: |
+    SELECT COUNT(*) AS [Строк остатка], COUNT(DISTINCT s.stk_ProductID) AS [Товаров на складе], SUM(CASE WHEN s.stk_CUQuantity<0 THEN 1 ELSE 0 END) AS [Отрицательное количество], SUM(CASE WHEN s.stk_CUQuantityFree<0 THEN 1 ELSE 0 END) AS [Отрицательное свободное], SUM(CASE WHEN s.stk_ReserveReasonID IS NOT NULL THEN 1 ELSE 0 END) AS [С причиной резерва], SUM(CASE WHEN s.stk_UnsuitReasonID IS NOT NULL THEN 1 ELSE 0 END) AS [Непригодных], COUNT(DISTINCT CASE WHEN (s.stk_CUQuantity<0 OR s.stk_CUQuantityFree<0 OR s.stk_ReserveReasonID IS NOT NULL OR s.stk_UnsuitReasonID IS NOT NULL) THEN s.stk_LocationID END) AS [Ячеек с проблемами]
+    FROM dbo.LV_Stock s
+- id: stock-issues.12-2
+  title: Проблемные остатки по зонам
+  group: Обзор проблемных остатков
+  kind: таблица
+  description: |
+    Что показывает: В каждой зоне: сколько строк остатков, сколько из них с резервом, непригодных и с отрицательным количеством.
+    Как считается: LV_Stock, зона ячейки из LV_LocZone.
+  sql: |
+    SELECT ISNULL(z.zon_Description, N'Без зоны') AS [Зона], COUNT(*) AS [Строк остатка], SUM(CASE WHEN s.stk_ReserveReasonID IS NOT NULL THEN 1 ELSE 0 END) AS [С причиной резерва], SUM(CASE WHEN s.stk_UnsuitReasonID IS NOT NULL THEN 1 ELSE 0 END) AS [Непригодных], SUM(CASE WHEN s.stk_CUQuantity<0 THEN 1 ELSE 0 END) AS [Отрицательных], COUNT(DISTINCT CASE WHEN (s.stk_CUQuantity<0 OR s.stk_CUQuantityFree<0 OR s.stk_ReserveReasonID IS NOT NULL OR s.stk_UnsuitReasonID IS NOT NULL) THEN s.stk_LocationID END) AS [Ячеек с проблемами]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    GROUP BY z.zon_Description
+    ORDER BY COUNT(*) DESC
+- id: stock-issues.12-3
+  title: Остатки по причинам
+  group: Обзор проблемных остатков
+  kind: таблица
+  description: |
+    Что показывает: Причины резерва и непригодности: сколько строк остатка, ячеек и товаров, и суммарное количество.
+    Как считается: LV_Stock и справочники LV_StockReserveReason и LV_UnsuitabilityReason.
+    Примечание: Суммарное количество ориентировочное: у строк могут быть разные единицы.
+  sql: |
+    SELECT N'Резерв' AS [Вид], REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((rr.srr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина], COUNT(*) AS [Строк остатка], COUNT(DISTINCT s.stk_LocationID) AS [Ячеек], COUNT(DISTINCT s.stk_ProductID) AS [Товаров], SUM(s.stk_CUQuantity) AS [Количество]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    WHERE s.stk_ReserveReasonID IS NOT NULL
+    GROUP BY rr.srr_Description
+    UNION ALL SELECT N'Непригодность', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((ur.unr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения'),
+      COUNT(*),
+      COUNT(DISTINCT s.stk_LocationID),
+      COUNT(DISTINCT s.stk_ProductID),
+      SUM(s.stk_CUQuantity)
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    WHERE s.stk_UnsuitReasonID IS NOT NULL
+    GROUP BY ur.unr_Description
+    ORDER BY 3 DESC
+- id: stock-issues.12-4
+  title: Отрицательные остатки
+  group: Списки для разбора
+  kind: таблица
+  description: |
+    Что показывает: Строки остатков, где количество или свободное количество меньше нуля: где лежат, какой товар, сколько, причины резерва и непригодности.
+    Как считается: LV_Stock, где stk_CUQuantity < 0 или stk_CUQuantityFree < 0; TOP 100 по величине минуса.
+    Примечание: Отрицательный остаток обычно значит недостачу или ошибку учёта; их разбирает старший кладовщик.
+  sql: |
+    SELECT TOP 100 l.loc_Code AS [Ячейка], ISNULL(z.zon_Description, N'Без зоны') AS [Зона], ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], s.stk_CUQuantity AS [Количество], s.stk_CUQuantityFree AS [Свободно], ISNULL(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((rr.srr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения'), N'—') AS [Причина резерва], ISNULL(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((ur.unr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения'), N'—') AS [Причина непригодности]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    WHERE s.stk_CUQuantity<0 OR s.stk_CUQuantityFree<0
+    ORDER BY s.stk_CUQuantity, s.stk_CUQuantityFree
+- id: stock-issues.12-5
+  title: Непригодный товар
+  group: Списки для разбора
+  kind: таблица
+  description: |
+    Что показывает: Остатки с причиной непригодности: ПТВ при входе, ПТВ в процессе хранения, истёкший срок, возврат от клиента.
+    Как считается: LV_Stock, где причина непригодности заполнена; TOP 100.
+    Примечание: ПТВ: потеря товарного вида.
+  sql: |
+    SELECT TOP 100 l.loc_Code AS [Ячейка], ISNULL(z.zon_Description, N'Без зоны') AS [Зона], ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], s.stk_CUQuantity AS [Количество], s.stk_CUQuantityFree AS [Свободно], REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((ur.unr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина непригодности]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    WHERE s.stk_UnsuitReasonID IS NOT NULL
+    ORDER BY ur.unr_Description, s.stk_CUQuantity DESC
+- id: stock-issues.12-6
+  title: 'Резерв: ошибка запаса и другие причины'
+  group: Списки для разбора
+  kind: таблица
+  description: |
+    Что показывает: Остатки с причиной резерва: ошибка запаса, образцы, ОТК и т. д.
+    Как считается: LV_Stock, где причина резерва заполнена; TOP 100.
+    Примечание: «Ошибка запаса» создаётся при недостаче или излишке, нужна корректировка.
+  sql: |
+    SELECT TOP 100 l.loc_Code AS [Ячейка], ISNULL(z.zon_Description, N'Без зоны') AS [Зона], ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], s.stk_CUQuantity AS [Количество], s.stk_CUQuantityFree AS [Свободно], REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((rr.srr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина резерва]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=s.stk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=s.stk_ProductID
+    LEFT JOIN dbo.LV_StockReserveReason rr ON rr.srr_ID=s.stk_ReserveReasonID
+    LEFT JOIN dbo.LV_UnsuitabilityReason ur ON ur.unr_ID=s.stk_UnsuitReasonID
+    WHERE s.stk_ReserveReasonID IS NOT NULL
+    ORDER BY rr.srr_Description, s.stk_CUQuantity

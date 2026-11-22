@@ -1,0 +1,141 @@
+section: receipts
+title: Приходы
+source_dashboard: wms-receipts
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -365d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: receipts.13-1
+  title: 'Приходы: сводка'
+  group: Обзор приходов
+  kind: сводка
+  description: |
+    Что показывает: Сколько приходов всего и в каждом статусе; сколько без типа; как давно введён самый старый открытый.
+    Как считается: статусы из LV_ProgressStatus; возраст от даты ввода (rct_InputDate) до текущего времени сервера.
+    Примечание: Показаны все приходы за всё время.
+  sql: |
+    SELECT COUNT(*) AS [Всего приходов], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Done' THEN 1 ELSE 0 END) AS [Выполнено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Pending' THEN 1 ELSE 0 END) AS [В ожидании], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Executing' THEN 1 ELSE 0 END) AS [В работе], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Suspended' THEN 1 ELSE 0 END) AS [Приостановлено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Cancelled' THEN 1 ELSE 0 END) AS [Отменено], SUM(CASE WHEN r.rct_TypeID IS NULL THEN 1 ELSE 0 END) AS [Без типа], ISNULL(MAX(CASE WHEN ps.pst_MessageCode NOT IN (N'Status_Done', N'Status_Cancelled') THEN DATEDIFF(day, r.rct_InputDate, GETDATE()) END),0) AS [Самый старый открытый, дней]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+- id: receipts.13-2
+  title: Приходы по типам и статусам
+  group: Обзор приходов
+  kind: таблица
+  description: |
+    Что показывает: Для каждого типа прихода: сколько документов в каждом статусе и сколько строк в них.
+    Как считается: LV_Receipt, типы из LV_ReceiptType.
+    Примечание: Строка «Тип не указан»: документы без заполненного типа.
+  sql: |
+    SELECT ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан') AS [Тип прихода], COUNT(*) AS [Всего], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Done' THEN 1 ELSE 0 END) AS [Выполнено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Pending' THEN 1 ELSE 0 END) AS [В ожидании], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Executing' THEN 1 ELSE 0 END) AS [В работе], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Suspended' THEN 1 ELSE 0 END) AS [Приостановлено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Cancelled' THEN 1 ELSE 0 END) AS [Отменено], SUM(ISNULL(r.rct_LineCount,0)) AS [Строк]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ReceiptType rt ON rt.rtt_ID=r.rct_TypeID
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    GROUP BY ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан')
+    ORDER BY COUNT(*) DESC
+- id: receipts.13-3
+  title: Время приёмки выполненных приходов
+  group: Обзор приходов
+  kind: таблица
+  description: |
+    Что показывает: Сколько времени проходит от ввода документа до фактической приёмки: среднее и максимум по типам.
+    Как считается: выполненные приходы с фактической датой; разница rct_ActualDate и rct_InputDate.
+    Примечание: Среднее в часах, максимум в сутках. Документы, принятые раньше ввода, в среднее не входят.
+  sql: |
+    SELECT ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан') AS [Тип прихода], SUM(CASE WHEN r.rct_ActualDate>=r.rct_InputDate THEN 1 ELSE 0 END) AS [Выполнено (корректное время)], CAST(AVG(CASE WHEN r.rct_ActualDate>=r.rct_InputDate THEN DATEDIFF(minute,r.rct_InputDate,r.rct_ActualDate)/60.0 END) AS decimal(12,1)) AS [Среднее, часов], CAST(MAX(CASE WHEN r.rct_ActualDate>=r.rct_InputDate THEN DATEDIFF(minute,r.rct_InputDate,r.rct_ActualDate)/1440.0 END) AS decimal(12,1)) AS [Максимум, суток], SUM(CASE WHEN r.rct_ActualDate<r.rct_InputDate THEN 1 ELSE 0 END) AS [Принято раньше ввода]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ReceiptType rt ON rt.rtt_ID=r.rct_TypeID
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    WHERE r.rct_ActualDate IS NOT NULL AND ps.pst_MessageCode=N'Status_Done'
+    GROUP BY ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан')
+    ORDER BY COUNT(*) DESC
+- id: receipts.13-4
+  title: Открытые приходы
+  group: Открытые приходы и расхождения
+  kind: таблица
+  description: |
+    Что показывает: Все приходы в статусах «В ожидании», «В работе», «Приостановлен»: код, тип, статус, когда введены, ожидаемая дата, сколько дней открыты, строк, план и факт.
+    Как считается: LV_Receipt со статусом, отличным от выполненного и отменённого; план и факт суммируются по строкам LV_ReceiptItem.
+    Примечание: План и факт указаны в единицах строк.
+  sql: |
+    SELECT r.rct_Code AS [Код прихода], ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан') AS [Тип прихода], ISNULL(ms.msg_Greek, ISNULL(ps.pst_MessageCode, N'(статус не указан)')) AS [Статус], r.rct_InputDate AS [Введён], r.rct_ExpectedDate AS [Ожидаемая дата], DATEDIFF(day, r.rct_InputDate, GETDATE()) AS [Дней открыт], ISNULL(r.rct_LineCount,0) AS [Строк], i.e AS [Ожидалось], i.a AS [Принято]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ReceiptType rt ON rt.rtt_ID=r.rct_TypeID
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    LEFT JOIN (SELECT rci_ReceiptID, SUM(rci_ExpQuantity) AS e, SUM(rci_ActQuantity) AS a
+      FROM dbo.LV_ReceiptItem
+      GROUP BY rci_ReceiptID) i ON i.rci_ReceiptID=r.rct_ID
+    WHERE ps.pst_MessageCode NOT IN (N'Status_Done', N'Status_Cancelled')
+    ORDER BY r.rct_InputDate
+- id: receipts.13-5
+  title: Приходы без типа
+  group: Открытые приходы и расхождения
+  kind: таблица
+  description: |
+    Что показывает: Приходы, у которых не заполнен тип: код, статус, дата ввода, число строк.
+    Как считается: LV_Receipt, где rct_TypeID пусто.
+    Примечание: Тип нужен для обмена с 1С; список можно передать тем, кто вводил документы.
+  sql: |
+    SELECT TOP 40 r.rct_Code AS [Код прихода], ISNULL(ms.msg_Greek, ISNULL(ps.pst_MessageCode, N'(статус не указан)')) AS [Статус], r.rct_InputDate AS [Введён], ISNULL(r.rct_LineCount,0) AS [Строк]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ReceiptType rt ON rt.rtt_ID=r.rct_TypeID
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    WHERE r.rct_TypeID IS NULL
+    ORDER BY r.rct_InputDate DESC
+- id: receipts.13-6
+  title: Приходы с расхождением план и факт
+  group: Открытые приходы и расхождения
+  kind: таблица
+  description: |
+    Что показывает: Выполненные приходы, где принятое количество отличается от ожидаемого.
+    Как считается: сумма rci_ActQuantity и rci_ExpQuantity по строкам прихода; TOP 30 по размеру расхождения.
+    Примечание: Единицы строк могут различаться (rci_InputItemUnitID и rci_ActItemUnitID), поэтому цифры ориентировочные; точный акт расхождений формирует WMS.
+  sql: |
+    SELECT TOP 30 r.rct_Code AS [Код прихода], ISNULL(RTRIM(rt.rtt_Description), N'Тип не указан') AS [Тип прихода], r.rct_ActualDate AS [Принят], i.e AS [Ожидалось], i.a AS [Принято], i.a - i.e AS [Разница]
+    FROM dbo.LV_Receipt r
+    LEFT JOIN dbo.LV_ReceiptType rt ON rt.rtt_ID=r.rct_TypeID
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=r.rct_ProgressID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    JOIN (SELECT rci_ReceiptID, SUM(rci_ExpQuantity) AS e, SUM(rci_ActQuantity) AS a
+      FROM dbo.LV_ReceiptItem
+      GROUP BY rci_ReceiptID) i ON i.rci_ReceiptID=r.rct_ID
+    WHERE ps.pst_MessageCode=N'Status_Done' AND ISNULL(i.a,0)<>ISNULL(i.e,0)
+    ORDER BY ABS(ISNULL(i.a,0)-ISNULL(i.e,0)) DESC
+- id: receipts.13-7
+  title: 'Приходы по дням: введено и принято'
+  group: Открытые приходы и расхождения
+  kind: timeseries
+  description: |
+    Что показывает: Сколько приходов вводилось и сколько принималось по дням за период.
+    Как считается: по дате ввода (rct_InputDate) и фактической дате (rct_ActualDate).
+    Примечание: Дни без приходов пустые.
+  sql: |
+    SELECT CAST(rct_InputDate AS date) AS [Дата],
+      COUNT(*) AS [Введено]
+    FROM dbo.LV_Receipt
+    WHERE rct_InputDate >= :date_from AND rct_InputDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(rct_InputDate AS date)
+    ORDER BY 1
+- id: receipts.13-8
+  title: 'Приходы по дням: введено и принято'
+  group: Открытые приходы и расхождения
+  kind: timeseries
+  description: |
+    Что показывает: Сколько приходов вводилось и сколько принималось по дням за период.
+    Как считается: по дате ввода (rct_InputDate) и фактической дате (rct_ActualDate).
+    Примечание: Дни без приходов пустые.
+  sql: |
+    SELECT CAST(rct_ActualDate AS date) AS [Дата],
+      COUNT(*) AS [Принято]
+    FROM dbo.LV_Receipt
+    WHERE rct_ActualDate IS NOT NULL AND rct_ActualDate >= :date_from AND rct_ActualDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(rct_ActualDate AS date)
+    ORDER BY 1

@@ -1,0 +1,196 @@
+section: exchange
+title: 'Обмен с 1С: очереди и ошибки'
+source_dashboard: wms-exchange
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -30d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: exchange.11-1
+  title: 'Очереди: сводка'
+  group: Обзор обмена с 1С
+  kind: сводка
+  description: |
+    Что показывает: Размер очередей импорта и экспорта, число записей в ошибке, максимум попыток, невыгруженный экспорт.
+    Как считается: импорт: eqi_ErrorLED=1 это ошибка; экспорт: eqe_ExportLED пусто или 0 это не выгружено в 1С.
+    Примечание: Возраст считается по дате запроса записи.
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport) AS [Очередь импорта, записей], (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport
+      WHERE eqi_ErrorLED=1) AS [Импорт: в ошибке], (SELECT MAX(eqi_TryNumber)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport) AS [Макс. попыток], (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueExport) AS [Очередь экспорта, записей], (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueExport
+      WHERE ISNULL(eqe_ExportLED,0)=0) AS [Экспорт: не выгружено в 1С], (SELECT DATEDIFF(day, MIN(eqe_RequestDate), GETDATE())
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueExport
+      WHERE ISNULL(eqe_ExportLED,0)=0) AS [Самая старая невыгруженная, дней]
+- id: exchange.11-2
+  title: Очередь по типам сообщений
+  group: Обзор обмена с 1С
+  kind: таблица
+  description: |
+    Что показывает: Каждый тип сообщения обмена: направление, объём, ошибки, необработанные записи, число попыток, даты.
+    Как считается: типы из справочника IFC_ExchangeQueueType; для импорта «Не обработано» это ImportLED пусто или 0, для экспорта ExportLED пусто или 0.
+    Примечание: Направление 1: из 1С в WMS, 2: из WMS в 1С.
+  sql: |
+    SELECT t.eqt_ID AS [№], t.eqt_Name AS [Тип сообщения], CASE t.eqt_Direction WHEN 1 THEN N'Из 1С в WMS' ELSE N'Из WMS в 1С' END AS [Направление], ISNULL(x.total,0) AS [Всего], ISNULL(x.err,0) AS [В ошибке], ISNULL(x.pending,0) AS [Не обработано], x.maxtry AS [Макс. попыток], x.dmin AS [Самая старая запись], x.dmax AS [Последняя запись]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueType t
+    LEFT JOIN (SELECT eqi_TypeID AS tid, COUNT(*) AS total, SUM(CASE WHEN eqi_ErrorLED=1 THEN 1 ELSE 0 END) AS err, SUM(CASE WHEN ISNULL(eqi_ImportLED,0)=0 THEN 1 ELSE 0 END) AS pending, MAX(eqi_TryNumber) AS maxtry, MIN(eqi_RequestDate) AS dmin, MAX(eqi_RequestDate) AS dmax
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport
+      GROUP BY eqi_TypeID
+      UNION ALL SELECT eqe_TypeID, COUNT(*), SUM(CASE WHEN eqe_ErrorLED=1 THEN 1 ELSE 0 END), SUM(CASE WHEN ISNULL(eqe_ExportLED,0)=0 THEN 1 ELSE 0 END), NULL, MIN(eqe_RequestDate), MAX(eqe_RequestDate)
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueExport
+      GROUP BY eqe_TypeID) x ON x.tid=t.eqt_ID
+    ORDER BY t.eqt_Direction, t.eqt_Priority
+- id: exchange.11-3
+  title: Зависшие ошибки по группам причин
+  group: Обзор обмена с 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи импорта в ошибке: группа причины, тип сообщения, сколько записей, максимум попыток, как давно и когда последний раз.
+    Как считается: группы определены по тексту ошибки (шаблоны); коды товаров, заказов и документов здесь не показываются.
+    Примечание: Группа «Прочие ошибки» это тексты вне известных шаблонов.
+  sql: |
+    SELECT t.eqt_Name AS [Тип сообщения], CASE WHEN i.eqi_ErrorMessage IS NULL OR LTRIM(RTRIM(i.eqi_ErrorMessage))=N'' THEN N'Текст ошибки не указан' WHEN i.eqi_ErrorMessage LIKE N'%units : UnitCode%' THEN N'Единица измерения не найдена в сопоставлении (код 1С)' WHEN i.eqi_ErrorMessage LIKE N'%за 10 попыток%' THEN N'Не удалось загрузить строку за 10 попыток' WHEN i.eqi_ErrorMessage LIKE N'%already linked to another item%' THEN N'Штрихкод уже привязан к другому товару' WHEN i.eqi_ErrorMessage LIKE N'%already exists%' OR i.eqi_ErrorMessage LIKE N'%уже присутству%' THEN N'Документ или заказ уже существует' WHEN i.eqi_ErrorMessage LIKE N'%не найден в%' THEN N'Код не найден в справочнике' WHEN i.eqi_ErrorMessage LIKE N'%Нет расхода в LVision%' THEN N'Нет расхода в WMS (обновление заголовка)' WHEN i.eqi_ErrorMessage LIKE N'%Склад получатель%' THEN N'Некорректный код атрибута «Склад получатель»' WHEN i.eqi_ErrorMessage LIKE N'%Марки некорректные%' OR i.eqi_ErrorMessage LIKE N'%Дубликаты марок%' OR i.eqi_ErrorMessage LIKE N'%принятые KM%' OR i.eqi_ErrorMessage LIKE N'%Для поставки нет приходов%' OR i.eqi_ErrorMessage LIKE N'%Марки еще не приняты%' OR i.eqi_ErrorMessage LIKE N'%AA0akm_RecATR%' THEN N'Маркировка (КМ): некорректные, дубликаты или не приняты' WHEN i.eqi_ErrorMessage LIKE N'%усечены%' THEN N'Данные длиннее поля (усечение)' WHEN i.eqi_ErrorMessage LIKE N'%Ошибка в данных%' THEN N'Ошибка в данных' ELSE N'Прочие ошибки' END AS [Группа причины], COUNT(*) AS [Записей], MAX(i.eqi_TryNumber) AS [Макс. попыток], DATEDIFF(day, MIN(i.eqi_RequestDate), GETDATE()) AS [Самая старая, дней назад], MAX(i.eqi_RequestDate) AS [Последняя запись]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport i
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueType t ON t.eqt_ID=i.eqi_TypeID
+    WHERE i.eqi_ErrorLED=1
+    GROUP BY t.eqt_Name, CASE WHEN i.eqi_ErrorMessage IS NULL OR LTRIM(RTRIM(i.eqi_ErrorMessage))=N'' THEN N'Текст ошибки не указан' WHEN i.eqi_ErrorMessage LIKE N'%units : UnitCode%' THEN N'Единица измерения не найдена в сопоставлении (код 1С)' WHEN i.eqi_ErrorMessage LIKE N'%за 10 попыток%' THEN N'Не удалось загрузить строку за 10 попыток' WHEN i.eqi_ErrorMessage LIKE N'%already linked to another item%' THEN N'Штрихкод уже привязан к другому товару' WHEN i.eqi_ErrorMessage LIKE N'%already exists%' OR i.eqi_ErrorMessage LIKE N'%уже присутству%' THEN N'Документ или заказ уже существует' WHEN i.eqi_ErrorMessage LIKE N'%не найден в%' THEN N'Код не найден в справочнике' WHEN i.eqi_ErrorMessage LIKE N'%Нет расхода в LVision%' THEN N'Нет расхода в WMS (обновление заголовка)' WHEN i.eqi_ErrorMessage LIKE N'%Склад получатель%' THEN N'Некорректный код атрибута «Склад получатель»' WHEN i.eqi_ErrorMessage LIKE N'%Марки некорректные%' OR i.eqi_ErrorMessage LIKE N'%Дубликаты марок%' OR i.eqi_ErrorMessage LIKE N'%принятые KM%' OR i.eqi_ErrorMessage LIKE N'%Для поставки нет приходов%' OR i.eqi_ErrorMessage LIKE N'%Марки еще не приняты%' OR i.eqi_ErrorMessage LIKE N'%AA0akm_RecATR%' THEN N'Маркировка (КМ): некорректные, дубликаты или не приняты' WHEN i.eqi_ErrorMessage LIKE N'%усечены%' THEN N'Данные длиннее поля (усечение)' WHEN i.eqi_ErrorMessage LIKE N'%Ошибка в данных%' THEN N'Ошибка в данных' ELSE N'Прочие ошибки' END
+    ORDER BY [Записей] DESC
+- id: exchange.11-4
+  title: Возраст ошибок
+  group: Обзор обмена с 1С
+  kind: таблица
+  description: |
+    Что показывает: Сколько записей в ошибке «живут» 0–7, 8–30, 31–90 и больше 90 дней, в разрезе основных типов сообщений.
+    Как считается: возраст считается от даты запроса записи до текущего времени сервера.
+    Примечание: Старые записи, у которых число попыток не растёт, скорее всего, мёртвые остатки тестов.
+  sql: |
+    SELECT x.bucket AS [Возраст записи], SUM(CASE WHEN x.tid=1 THEN 1 ELSE 0 END) AS [Импорт товаров], SUM(CASE WHEN x.tid=5 THEN 1 ELSE 0 END) AS [Заказы на приход], SUM(CASE WHEN x.tid=6 THEN 1 ELSE 0 END) AS [Заказы на расход], SUM(CASE WHEN x.tid=8 THEN 1 ELSE 0 END) AS [КМ], SUM(CASE WHEN x.tid=14 THEN 1 ELSE 0 END) AS [Обновление заголовка расхода], SUM(CASE WHEN x.tid NOT IN (1,5,6,8,14) THEN 1 ELSE 0 END) AS [Прочие типы], COUNT(*) AS [Всего]
+    FROM (SELECT eqi_TypeID AS tid, CASE WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=7 THEN N'до 7 дней' WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=30 THEN N'8–30 дней' WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=90 THEN N'31–90 дней' ELSE N'больше 90 дней' END AS bucket, CASE WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=7 THEN 1 WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=30 THEN 2 WHEN DATEDIFF(day, eqi_RequestDate, GETDATE())<=90 THEN 3 ELSE 4 END AS ord
+      FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport
+      WHERE eqi_ErrorLED=1) x
+    GROUP BY x.bucket, x.ord
+    ORDER BY x.ord
+- id: exchange.11-5
+  title: Поступление сообщений по дням
+  group: Обзор обмена с 1С
+  kind: timeseries
+  description: |
+    Что показывает: Сколько записей добавлялось в очереди импорта и экспорта по дням за выбранный период (по умолчанию 30 дней).
+    Как считается: по дате запроса записи.
+    Примечание: Дни без записей на графике пустые.
+  sql: |
+    SELECT CAST(eqi_RequestDate AS date) AS [Дата],
+      COUNT(*) AS [Импорт: из 1С в WMS]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport
+    WHERE eqi_RequestDate >= :date_from AND eqi_RequestDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(eqi_RequestDate AS date)
+    ORDER BY 1
+- id: exchange.11-6
+  title: Поступление сообщений по дням
+  group: Обзор обмена с 1С
+  kind: timeseries
+  description: |
+    Что показывает: Сколько записей добавлялось в очереди импорта и экспорта по дням за выбранный период (по умолчанию 30 дней).
+    Как считается: по дате запроса записи.
+    Примечание: Дни без записей на графике пустые.
+  sql: |
+    SELECT CAST(eqe_RequestDate AS date) AS [Дата],
+      COUNT(*) AS [Экспорт: из WMS в 1С]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueExport
+    WHERE eqe_RequestDate >= :date_from AND eqe_RequestDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(eqe_RequestDate AS date)
+    ORDER BY 1
+- id: exchange.11-7
+  title: 'Ошибки: тип и текст'
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: Записи импорта в ошибке в разрезе типа сообщения и текста ошибки (первые 160 символов).
+    Как считается: группировка по типу и тексту; TOP 100 по числу записей.
+    Примечание: Тексты могут содержать коды заказов, приходов и товаров. Дашборд внутренний, публичных ссылок нет.
+  sql: |
+    SELECT TOP 100 t.eqt_Name AS [Тип сообщения], ISNULL(LEFT(i.eqi_ErrorMessage,160),N'(текст не указан)') AS [Текст ошибки], COUNT(*) AS [Записей], MAX(i.eqi_TryNumber) AS [Макс. попыток], MIN(i.eqi_RequestDate) AS [Самая старая], MAX(i.eqi_RequestDate) AS [Последняя]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport i
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueType t ON t.eqt_ID=i.eqi_TypeID
+    WHERE i.eqi_ErrorLED=1
+    GROUP BY t.eqt_Name, LEFT(i.eqi_ErrorMessage,160)
+    ORDER BY COUNT(*) DESC
+- id: exchange.11-8
+  title: Самые «упорные» записи (по числу попыток)
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: 20 записей импорта с наибольшим числом попыток обработки: идентификатор записи и объекта, тип, группа причины.
+    Как считается: TOP 20 по eqi_TryNumber среди записей в ошибке.
+    Примечание: Идентификатор объекта (eqi_ObjectID) связывает запись очереди с строкой в таблице типа сообщения.
+  sql: |
+    SELECT TOP 20 i.eqi_ID AS [ID записи], t.eqt_Name AS [Тип сообщения], i.eqi_ObjectID AS [ID объекта], i.eqi_TryNumber AS [Попыток], i.eqi_RequestDate AS [Дата запроса], CASE WHEN i.eqi_ErrorMessage IS NULL OR LTRIM(RTRIM(i.eqi_ErrorMessage))=N'' THEN N'Текст ошибки не указан' WHEN i.eqi_ErrorMessage LIKE N'%units : UnitCode%' THEN N'Единица измерения не найдена в сопоставлении (код 1С)' WHEN i.eqi_ErrorMessage LIKE N'%за 10 попыток%' THEN N'Не удалось загрузить строку за 10 попыток' WHEN i.eqi_ErrorMessage LIKE N'%already linked to another item%' THEN N'Штрихкод уже привязан к другому товару' WHEN i.eqi_ErrorMessage LIKE N'%already exists%' OR i.eqi_ErrorMessage LIKE N'%уже присутству%' THEN N'Документ или заказ уже существует' WHEN i.eqi_ErrorMessage LIKE N'%не найден в%' THEN N'Код не найден в справочнике' WHEN i.eqi_ErrorMessage LIKE N'%Нет расхода в LVision%' THEN N'Нет расхода в WMS (обновление заголовка)' WHEN i.eqi_ErrorMessage LIKE N'%Склад получатель%' THEN N'Некорректный код атрибута «Склад получатель»' WHEN i.eqi_ErrorMessage LIKE N'%Марки некорректные%' OR i.eqi_ErrorMessage LIKE N'%Дубликаты марок%' OR i.eqi_ErrorMessage LIKE N'%принятые KM%' OR i.eqi_ErrorMessage LIKE N'%Для поставки нет приходов%' OR i.eqi_ErrorMessage LIKE N'%Марки еще не приняты%' OR i.eqi_ErrorMessage LIKE N'%AA0akm_RecATR%' THEN N'Маркировка (КМ): некорректные, дубликаты или не приняты' WHEN i.eqi_ErrorMessage LIKE N'%усечены%' THEN N'Данные длиннее поля (усечение)' WHEN i.eqi_ErrorMessage LIKE N'%Ошибка в данных%' THEN N'Ошибка в данных' ELSE N'Прочие ошибки' END AS [Группа причины]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport i
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueType t ON t.eqt_ID=i.eqi_TypeID
+    WHERE i.eqi_ErrorLED=1
+    ORDER BY i.eqi_TryNumber DESC, i.eqi_ID
+- id: exchange.11-9
+  title: 'Записи в ошибке: что за объект'
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: 30 записей в ошибке с кратким описанием объекта (товар, приход, заказ или КМ): сначала те, у кого строка в таблице обмена ещё есть, затем удалённые; внутри по числу попыток.
+    Как считается: по ключу eqi_ObjectID из таблицы своего типа сообщения; TOP 30 по числу попыток.
+    Примечание: Персональные поля (комментарии, водитель, телефон, адреса, значения КМ) не выводятся. Таблицы обмена очищаются, поэтому часть строк уже удалена (у заказов на расход найдено 113 из 212, у КМ 17 из 290).
+  sql: |
+    SELECT TOP 30 i.eqi_ID AS [ID записи], t.eqt_Name AS [Тип сообщения], i.eqi_TryNumber AS [Попыток], CASE WHEN i.eqi_ErrorMessage IS NULL OR LTRIM(RTRIM(i.eqi_ErrorMessage))=N'' THEN N'Текст ошибки не указан' WHEN i.eqi_ErrorMessage LIKE N'%units : UnitCode%' THEN N'Единица измерения не найдена в сопоставлении (код 1С)' WHEN i.eqi_ErrorMessage LIKE N'%за 10 попыток%' THEN N'Не удалось загрузить строку за 10 попыток' WHEN i.eqi_ErrorMessage LIKE N'%already linked to another item%' THEN N'Штрихкод уже привязан к другому товару' WHEN i.eqi_ErrorMessage LIKE N'%already exists%' OR i.eqi_ErrorMessage LIKE N'%уже присутству%' THEN N'Документ или заказ уже существует' WHEN i.eqi_ErrorMessage LIKE N'%не найден в%' THEN N'Код не найден в справочнике' WHEN i.eqi_ErrorMessage LIKE N'%Нет расхода в LVision%' THEN N'Нет расхода в WMS (обновление заголовка)' WHEN i.eqi_ErrorMessage LIKE N'%Склад получатель%' THEN N'Некорректный код атрибута «Склад получатель»' WHEN i.eqi_ErrorMessage LIKE N'%Марки некорректные%' OR i.eqi_ErrorMessage LIKE N'%Дубликаты марок%' OR i.eqi_ErrorMessage LIKE N'%принятые KM%' OR i.eqi_ErrorMessage LIKE N'%Для поставки нет приходов%' OR i.eqi_ErrorMessage LIKE N'%Марки еще не приняты%' OR i.eqi_ErrorMessage LIKE N'%AA0akm_RecATR%' THEN N'Маркировка (КМ): некорректные, дубликаты или не приняты' WHEN i.eqi_ErrorMessage LIKE N'%усечены%' THEN N'Данные длиннее поля (усечение)' WHEN i.eqi_ErrorMessage LIKE N'%Ошибка в данных%' THEN N'Ошибка в данных' ELSE N'Прочие ошибки' END AS [Группа причины], CASE WHEN (i.eqi_TypeID=1 AND p.ID IS NULL) OR (i.eqi_TypeID=5 AND r.ID IS NULL) OR (i.eqi_TypeID=6 AND o.ID IS NULL) OR (i.eqi_TypeID=14 AND c.ID IS NULL) OR (i.eqi_TypeID=8 AND k.ID IS NULL) THEN N'Строка удалена из таблицы обмена' WHEN i.eqi_TypeID=1 THEN N'Товар ' + ISNULL(CAST(p.ProductCode AS nvarchar(60)),N'—') + N', единица 1С: ' + ISNULL(CAST(p.BaseUnit AS nvarchar(60)),N'—') WHEN i.eqi_TypeID=5 THEN N'Приход ' + ISNULL(CAST(r.ReceiptCode AS nvarchar(60)),N'—') + N', тип ' + ISNULL(CAST(r.ReceiptType AS nvarchar(60)),N'—') + N', строк ' + ISNULL(CAST(r.LinesCount AS nvarchar(60)),N'—') WHEN i.eqi_TypeID=6 THEN N'Заказ ' + ISNULL(CAST(o.CustomerOrderCode AS nvarchar(60)),N'—') + N', тип ' + ISNULL(CAST(o.OrderType AS nvarchar(60)),N'—') + N', строк ' + ISNULL(CAST(o.LinesCount AS nvarchar(60)),N'—') + N', отгрузка ' + ISNULL(CAST(o.ExpShipDate AS nvarchar(60)),N'—') WHEN i.eqi_TypeID=14 THEN N'Обновление заказа ' + ISNULL(CAST(c.CustomerOrderCode AS nvarchar(60)),N'—') WHEN i.eqi_TypeID=8 THEN N'КМ: приход ' + ISNULL(CAST(k.ReceiptCode AS nvarchar(60)),N'—') + N', товар ' + ISNULL(CAST(k.ProductCode AS nvarchar(60)),N'—') ELSE N'(тип не разбирается)' END AS [Объект], i.eqi_RequestDate AS [Дата запроса]
+    FROM MRDN_Exchange.dbo.IFC_ExchangeQueueImport i
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueType t ON t.eqt_ID=i.eqi_TypeID
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportProduct p ON i.eqi_TypeID=1 AND p.ID=i.eqi_ObjectID
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportReceiptHeader r ON i.eqi_TypeID=5 AND r.ID=i.eqi_ObjectID
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportOrderHeader o ON i.eqi_TypeID=6 AND o.ID=i.eqi_ObjectID
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportOrderChange c ON i.eqi_TypeID=14 AND c.ID=i.eqi_ObjectID
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportKM k ON i.eqi_TypeID=8 AND k.ID=i.eqi_ObjectID
+    WHERE i.eqi_ErrorLED=1 AND i.eqi_TypeID IN (1,5,6,8,14)
+    ORDER BY CASE WHEN (i.eqi_TypeID=1 AND p.ID IS NULL) OR (i.eqi_TypeID=5 AND r.ID IS NULL) OR (i.eqi_TypeID=6 AND o.ID IS NULL) OR (i.eqi_TypeID=14 AND c.ID IS NULL) OR (i.eqi_TypeID=8 AND k.ID IS NULL) THEN 1 ELSE 0 END, i.eqi_TryNumber DESC, i.eqi_ID
+- id: exchange.11-10
+  title: Единицы измерения 1С без сопоставления
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: Какие единицы измерения приходят из 1С в справочнике товаров, но не заведены в сопоставление (IFC_UnitMapping), и сколько товаров с каждой.
+    Как считается: товары IFC_ImportProduct, у которых BaseUnit не найден в IFC_UnitMapping.UnitCode1C.
+    Примечание: Это причина самой частой ошибки импорта товаров: «Единица измерения не найдена в сопоставлении».
+  sql: |
+    SELECT ISNULL(p.BaseUnit,N'(пусто)') AS [Единица в 1С], COUNT(*) AS [Товаров]
+    FROM MRDN_Exchange.dbo.IFC_ImportProduct p
+    LEFT JOIN MRDN_Exchange.dbo.IFC_UnitMapping m ON m.UnitCode1C=p.BaseUnit
+    WHERE m.ID IS NULL
+    GROUP BY p.BaseUnit
+    ORDER BY COUNT(*) DESC
+- id: exchange.11-11
+  title: Сопоставление единиц 1С и WMS
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: Единицы, которые уже заведены в сопоставление: код в 1С, код в WMS и сколько товаров с этой единицей.
+    Как считается: IFC_UnitMapping и IFC_ImportProduct.
+  sql: |
+    SELECT m.UnitCode1C AS [Единица в 1С], m.UnitCode AS [Код в WMS], COUNT(p.ID) AS [Товаров]
+    FROM MRDN_Exchange.dbo.IFC_UnitMapping m
+    LEFT JOIN MRDN_Exchange.dbo.IFC_ImportProduct p ON p.BaseUnit=m.UnitCode1C
+    GROUP BY m.ID, m.UnitCode1C, m.UnitCode
+    ORDER BY m.ID
+- id: exchange.11-12
+  title: Единицы измерения в WMS
+  group: Для разработчиков (содержит коды документов и товаров)
+  kind: таблица
+  description: |
+    Что показывает: Коды единиц измерения, заведённые в WMS (справочник LV_Unit). К ним можно сопоставлять единицы 1С.
+    Как считается: LV_Unit, 28 значений.
+  sql: |
+    SELECT unt_Code AS [Код единицы WMS]
+    FROM dbo.LV_Unit
+    ORDER BY unt_Code

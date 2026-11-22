@@ -41,7 +41,7 @@ def _code_only(sql: str) -> str:
 
 def validate_sql(sql: str) -> None:
     """Бросает QueryError, если SQL не является одиночным читающим запросом."""
-    code = _code_only(sql).strip().rstrip(";").strip()
+    code = _code_only(sql).strip().strip(";").strip()  # ";WITH ..." и завершающая ";" допустимы
     if not re.match(r"(SELECT|WITH)\b", code, re.I):
         raise QueryError("SQL должен начинаться с SELECT или WITH")
     if ";" in code:
@@ -190,6 +190,26 @@ def load_registry(directory: str | Path) -> Registry:
     return Registry(sections, queries)
 
 
+def _date_default(var: Variable) -> dt.date:
+    """Значение даты по умолчанию: '-Nd' (N дней назад), ГГГГ-ММ-ДД; иначе 30 дней назад / сегодня для date_to."""
+    today = dt.date.today()
+    d = var.default
+    if isinstance(d, str):
+        m = re.fullmatch(r"-(\d+)d", d.strip())
+        if m:
+            return today - dt.timedelta(days=int(m.group(1)))
+        try:
+            return dt.date.fromisoformat(d.strip())
+        except ValueError:
+            pass
+    return today if var.name == "date_to" else today - dt.timedelta(days=30)
+
+
+def resolve_default(var: Variable):
+    """Значение по умолчанию для интерфейса (даты приведены к ГГГГ-ММ-ДД)."""
+    return _date_default(var).isoformat() if var.type == "date" else var.default
+
+
 def _coerce(var: Variable, value):
     if var.type == "text":
         s = "" if value is None else str(value).strip()
@@ -198,10 +218,7 @@ def _coerce(var: Variable, value):
         return s
     if var.type == "date":
         if value in (None, ""):
-            value = var.default
-        if value in (None, ""):
-            today = dt.date.today()
-            return today if var.name == "date_to" else today - dt.timedelta(days=30)
+            return _date_default(var)
         try:
             return dt.date.fromisoformat(str(value))
         except ValueError:

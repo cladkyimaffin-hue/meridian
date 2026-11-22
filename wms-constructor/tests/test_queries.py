@@ -16,6 +16,7 @@ DATA = Path(__file__).parent / "data"
     "SELECT 1 AS [Delete], 2 AS [Update]",       # внутри [идентификатора]
     "SELECT 1 -- DROP TABLE t",                  # в комментарии
     "SELECT rct_CreateDate FROM dbo.T WITH (NOLOCK)",
+    ";WITH occ AS (SELECT 1 AS x) SELECT * FROM occ",   # ведущая ; (идиома T-SQL)
 ])
 def test_validate_ok(sql):
     validate_sql(sql)
@@ -72,3 +73,10 @@ def test_load_reports_all_errors(tmp_path):
     with pytest.raises(QueryError) as e:
         load_registry(tmp_path)
     assert "запрос a" in str(e.value) and "запрос b" in str(e.value)
+
+
+def test_relative_date_default():
+    from app.queries import Variable, resolve_default
+    v = Variable("date_from", "С даты", "date", default="-90d")
+    assert resolve_default(v) == (dt.date.today() - dt.timedelta(days=90)).isoformat()
+    assert resolve_default(Variable("date_to", "По", "date")) == dt.date.today().isoformat()

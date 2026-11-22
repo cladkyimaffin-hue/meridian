@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from . import db
 from .config import Settings, load_settings
 from .excel import build_xlsx
-from .queries import QueryError, Registry, bind, load_registry
+from .queries import QueryError, Registry, bind, load_registry, resolve_default
 
 log = logging.getLogger("wms-constructor")
 
@@ -70,7 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "name": n,
                     "label": sec.variables[n].label,
                     "type": sec.variables[n].type,
-                    "default": sec.variables[n].default,
+                    "default": resolve_default(sec.variables[n]),
                     "has_options": bool(sec.variables[n].options_sql or sec.variables[n].options),
                 }
                 for n in q.params

@@ -1,0 +1,146 @@
+section: orders
+title: 'Расход: заказы и партии'
+source_dashboard: wms-orders
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -365d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: orders.14-1
+  title: 'Расход: сводка'
+  group: Обзор расхода
+  kind: сводка
+  description: |
+    Что показывает: Заказов и расходных партий; сколько партий выполнено, отменено, приостановлено, открыто; где статус заказа не совпадает со статусом партии.
+    Как считается: статусы из LV_OrderStatus; «Партия выполнена, заказ нет» это партия в статусе «Выполнен», а её заказ в другом статусе; аналогично для «Отменён».
+    Примечание: Показаны все заказы за всё время.
+  sql: |
+    SELECT COUNT(DISTINCT o.ord_ID) AS [Заказов], COUNT(*) AS [Расходных партий], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Complete' THEN 1 ELSE 0 END) AS [Партий выполнено], SUM(CASE WHEN ISNULL(sh.ors_MessageCode,N'') NOT IN (N'ORD_Complete', N'ORD_Canceled') THEN 1 ELSE 0 END) AS [Партий открыто], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Canceled' THEN 1 ELSE 0 END) AS [Партий отменено], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Suspended' THEN 1 ELSE 0 END) AS [Партий приостановлено], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Complete' AND ISNULL(so.ors_MessageCode,N'')<>N'ORD_Complete' THEN 1 ELSE 0 END) AS [Партия выполнена, заказ нет], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Canceled' AND ISNULL(so.ors_MessageCode,N'')<>N'ORD_Canceled' THEN 1 ELSE 0 END) AS [Партия отменена, заказ нет]
+    FROM dbo.LV_OrderShipment h
+    JOIN dbo.LV_Order o ON o.ord_ID=h.ost_OrderID
+    LEFT JOIN dbo.LV_OrderStatus sh ON sh.ors_ID=h.ost_StatusID
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+- id: orders.14-2
+  title: Расходные партии по статусам
+  group: Обзор расхода
+  kind: таблица
+  description: |
+    Что показывает: Сколько расходных партий в каждом статусе, когда введён самый старый и самый новый заказ и когда была последняя отгрузка.
+    Как считается: LV_OrderShipment, статус партии, подпись из LV_Messages (русский).
+    Примечание: Возраст считается по дате ввода заказа (ord_InputDate).
+  sql: |
+    SELECT ISNULL(mh.msg_Greek, ISNULL(sh.ors_MessageCode, N'(статус не указан)')) AS [Статус партии], COUNT(*) AS [Партий], MIN(o.ord_InputDate) AS [Самый старый заказ], MAX(o.ord_InputDate) AS [Самый новый заказ], MAX(h.ost_ShipDate) AS [Последняя отгрузка]
+    FROM dbo.LV_OrderShipment h
+    JOIN dbo.LV_Order o ON o.ord_ID=h.ost_OrderID
+    LEFT JOIN dbo.LV_OrderStatus sh ON sh.ors_ID=h.ost_StatusID
+    LEFT JOIN dbo.LV_Messages mh ON mh.msg_code=sh.ors_MessageCode AND mh.msg_languageID=4
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+    LEFT JOIN dbo.LV_Messages mo ON mo.msg_code=so.ors_MessageCode AND mo.msg_languageID=4
+    LEFT JOIN dbo.LV_OrderType ot ON ot.ort_ID=o.ord_TypeID
+    GROUP BY ISNULL(mh.msg_Greek, ISNULL(sh.ors_MessageCode, N'(статус не указан)'))
+    ORDER BY COUNT(*) DESC
+- id: orders.14-3
+  title: Заказы по статусам
+  group: Обзор расхода
+  kind: таблица
+  description: |
+    Что показывает: Сколько расходных заказов в каждом статусе (по самому заказу) и сколько в них позиций.
+    Как считается: LV_Order, статус заказа, число позиций ord_LineCount.
+    Примечание: Ни один заказ в тестовой базе не дошёл до «Выполнен»; см. таблицу расхождений.
+  sql: |
+    SELECT ISNULL(mo.msg_Greek, ISNULL(so.ors_MessageCode, N'(статус не указан)')) AS [Статус заказа], COUNT(*) AS [Заказов], SUM(ISNULL(o.ord_LineCount,0)) AS [Позиций], MIN(o.ord_InputDate) AS [Самый старый], MAX(o.ord_InputDate) AS [Самый новый]
+    FROM dbo.LV_Order o
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+    LEFT JOIN dbo.LV_Messages mo ON mo.msg_code=so.ors_MessageCode AND mo.msg_languageID=4
+    GROUP BY ISNULL(mo.msg_Greek, ISNULL(so.ors_MessageCode, N'(статус не указан)'))
+    ORDER BY COUNT(*) DESC
+- id: orders.14-4
+  title: Заказы по типам
+  group: Обзор расхода
+  kind: таблица
+  description: |
+    Что показывает: Сколько заказов каждого типа и в каком статусе находятся их партии.
+    Как считается: LV_Order и LV_OrderType; партии из LV_OrderShipment.
+    Примечание: Строка без названия значит, что тип не задан.
+  sql: |
+    SELECT ISNULL(RTRIM(ot.ort_Description), N'Тип не указан') AS [Тип заказа], COUNT(DISTINCT o.ord_ID) AS [Заказов], COUNT(*) AS [Партий], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Complete' THEN 1 ELSE 0 END) AS [Партий выполнено], SUM(CASE WHEN ISNULL(sh.ors_MessageCode,N'') NOT IN (N'ORD_Complete', N'ORD_Canceled') THEN 1 ELSE 0 END) AS [Партий открыто], SUM(CASE WHEN sh.ors_MessageCode=N'ORD_Canceled' THEN 1 ELSE 0 END) AS [Партий отменено]
+    FROM dbo.LV_OrderShipment h
+    JOIN dbo.LV_Order o ON o.ord_ID=h.ost_OrderID
+    LEFT JOIN dbo.LV_OrderStatus sh ON sh.ors_ID=h.ost_StatusID
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+    LEFT JOIN dbo.LV_OrderType ot ON ot.ort_ID=o.ord_TypeID
+    GROUP BY ot.ort_Description
+    ORDER BY COUNT(*) DESC
+- id: orders.14-5
+  title: Расхождение статусов заказа и партии
+  group: Обзор расхода
+  kind: таблица
+  description: |
+    Что показывает: Сочетания «статус заказа и статус его партии» и сколько партий в каждом. Если статус заказа не совпадает с итоговым статусом партии, заказ «отстаёт».
+    Как считается: по каждой партии: статус заказа (LV_Order) и статус партии (LV_OrderShipment).
+    Примечание: По спецификации заказ завершается после отгрузки партии; причина расхождения в тестовой базе уточняется. Возможно, это недозавершённые тестовые заказы.
+  sql: |
+    SELECT ISNULL(mo.msg_Greek, ISNULL(so.ors_MessageCode, N'(статус не указан)')) AS [Статус заказа], ISNULL(mh.msg_Greek, ISNULL(sh.ors_MessageCode, N'(статус не указан)')) AS [Статус партии], COUNT(*) AS [Партий], CASE WHEN so.ors_MessageCode=sh.ors_MessageCode THEN N'Совпадает' ELSE N'Не совпадает' END AS [Сравнение]
+    FROM dbo.LV_OrderShipment h
+    JOIN dbo.LV_Order o ON o.ord_ID=h.ost_OrderID
+    LEFT JOIN dbo.LV_OrderStatus sh ON sh.ors_ID=h.ost_StatusID
+    LEFT JOIN dbo.LV_Messages mh ON mh.msg_code=sh.ors_MessageCode AND mh.msg_languageID=4
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+    LEFT JOIN dbo.LV_Messages mo ON mo.msg_code=so.ors_MessageCode AND mo.msg_languageID=4
+    GROUP BY ISNULL(mo.msg_Greek, ISNULL(so.ors_MessageCode, N'(статус не указан)')),
+      ISNULL(mh.msg_Greek, ISNULL(sh.ors_MessageCode, N'(статус не указан)')),
+      CASE WHEN so.ors_MessageCode=sh.ors_MessageCode THEN N'Совпадает' ELSE N'Не совпадает' END
+    ORDER BY COUNT(*) DESC
+- id: orders.14-6
+  title: Открытые расходные партии
+  group: Открытые партии и динамика
+  kind: таблица
+  description: |
+    Что показывает: Партии, которые ещё не выполнены и не отменены: код партии и заказа, тип, статус партии и заказа, когда введён заказ, сколько дней открыт, плановая отгрузка, число позиций.
+    Как считается: LV_OrderShipment со статусом, отличным от «Выполнен» и «Отменён»; возраст от даты ввода заказа до текущего времени.
+    Примечание: TOP 100 самых старых.
+  sql: |
+    SELECT TOP 100 h.ost_Code AS [Код партии], o.ord_Code AS [Код заказа], ISNULL(RTRIM(ot.ort_Description), N'Тип не указан') AS [Тип заказа], ISNULL(mh.msg_Greek, ISNULL(sh.ors_MessageCode, N'(статус не указан)')) AS [Статус партии], ISNULL(mo.msg_Greek, ISNULL(so.ors_MessageCode, N'(статус не указан)')) AS [Статус заказа], o.ord_InputDate AS [Введён], DATEDIFF(day, o.ord_InputDate, GETDATE()) AS [Дней открыт], o.ord_ExpShipDate AS [Плановая отгрузка], ISNULL(o.ord_LineCount,0) AS [Позиций]
+    FROM dbo.LV_OrderShipment h
+    JOIN dbo.LV_Order o ON o.ord_ID=h.ost_OrderID
+    LEFT JOIN dbo.LV_OrderStatus sh ON sh.ors_ID=h.ost_StatusID
+    LEFT JOIN dbo.LV_Messages mh ON mh.msg_code=sh.ors_MessageCode AND mh.msg_languageID=4
+    LEFT JOIN dbo.LV_OrderStatus so ON so.ors_ID=o.ord_StatusID
+    LEFT JOIN dbo.LV_Messages mo ON mo.msg_code=so.ors_MessageCode AND mo.msg_languageID=4
+    LEFT JOIN dbo.LV_OrderType ot ON ot.ort_ID=o.ord_TypeID
+    WHERE ISNULL(sh.ors_MessageCode,N'') NOT IN (N'ORD_Complete', N'ORD_Canceled')
+    ORDER BY o.ord_InputDate
+- id: orders.14-7
+  title: 'Заказы по дням: введено и отгружено'
+  group: Открытые партии и динамика
+  kind: timeseries
+  description: |
+    Что показывает: Сколько заказов вводилось и сколько партий отгружалось по дням за период.
+    Как считается: по дате ввода заказа (ord_InputDate) и дате отгрузки партии (ost_ShipDate).
+    Примечание: Дни без событий пустые.
+  sql: |
+    SELECT CAST(ord_InputDate AS date) AS [Дата],
+      COUNT(*) AS [Заказов введено]
+    FROM dbo.LV_Order
+    WHERE ord_InputDate >= :date_from AND ord_InputDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(ord_InputDate AS date)
+    ORDER BY 1
+- id: orders.14-8
+  title: 'Заказы по дням: введено и отгружено'
+  group: Открытые партии и динамика
+  kind: timeseries
+  description: |
+    Что показывает: Сколько заказов вводилось и сколько партий отгружалось по дням за период.
+    Как считается: по дате ввода заказа (ord_InputDate) и дате отгрузки партии (ost_ShipDate).
+    Примечание: Дни без событий пустые.
+  sql: |
+    SELECT CAST(ost_ShipDate AS date) AS [Дата],
+      COUNT(*) AS [Партий отгружено]
+    FROM dbo.LV_OrderShipment
+    WHERE ost_ShipDate IS NOT NULL AND ost_ShipDate >= :date_from AND ost_ShipDate < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(ost_ShipDate AS date)
+    ORDER BY 1

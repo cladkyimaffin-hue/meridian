@@ -1,0 +1,112 @@
+section: staff-workload
+title: Нагрузка по исполнителям
+source_dashboard: wms-staff-workload
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -365d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: staff-workload.7-1
+  title: 'Исполнители: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько сотрудников и сколько из них активных, сколько исполнителей выполняли задачи и сколько задач создано за период.
+    Как считается: COM_Employee; задачи LV_Task по времени создания tsk_CreateTime за выбранный период.
+    Примечание: Исполнитель задачи и сотрудник в приходах и пересчётах это COM_Employee (связь подтверждена внешними ключами); создатель задачи это LV_Users. Пользователь в журнале операций (log_UserID) сопоставляется с LV_Users по совпадению номеров, внешнего ключа нет (INFERRED).
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM dbo.COM_Employee) AS [Сотрудников], (SELECT COUNT(*)
+      FROM dbo.COM_Employee
+      WHERE emp_ActiveLED=1) AS [Активных], (SELECT COUNT(DISTINCT tsk_ActualUserID)
+      FROM dbo.LV_Task
+      WHERE tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)) AS [Исполнителей с задачами за период], (SELECT COUNT(*)
+      FROM dbo.LV_Task
+      WHERE tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)) AS [Задач за период]
+- id: staff-workload.7-2
+  title: Исполнители
+  group: Исполнители
+  kind: таблица
+  description: |
+    Что показывает: Каждый сотрудник: имя, код, логин, группа, активность и объём записанной работы за всё время: задач (факт и ожидание), записей по приходам, пересчётов, созданных задач, последняя операция.
+    Как считается: COM_Employee, COM_Person, LV_Users, группа из COM_EmployeesByGroup и COM_EmployeeGroup; счётчики из LV_Task, LV_ReceiptEmployee, LV_Count, LV_Log.
+    Примечание: Исполнитель задачи и сотрудник в приходах и пересчётах это COM_Employee (связь подтверждена внешними ключами); создатель задачи это LV_Users. Пользователь в журнале операций (log_UserID) сопоставляется с LV_Users по совпадению номеров, внешнего ключа нет (INFERRED). Период не применяется.
+  sql: |
+    SELECT LTRIM(RTRIM(ISNULL(p.per_LastName, N'') + N' ' + ISNULL(p.per_FirstName, N''))) AS [Исполнитель], ISNULL(p.per_Code, N'—') AS [Код], ISNULL(u.usr_Login, N'—') AS [Логин], ISNULL(g.egr_Name, N'—') AS [Группа], CASE WHEN e.emp_ActiveLED=1 THEN N'да' ELSE N'нет' END AS [Активен], (SELECT COUNT(*)
+      FROM dbo.LV_Task t
+      WHERE t.tsk_ActualUserID=e.emp_ID) AS [Задач выполнено (фактический исполнитель)], (SELECT COUNT(*)
+      FROM dbo.LV_Task t
+      WHERE t.tsk_ExpUserID=e.emp_ID) AS [Задач ожидалось (ожидаемый исполнитель)], (SELECT COUNT(*)
+      FROM dbo.LV_ReceiptEmployee r
+      WHERE r.rce_EmployeeID=e.emp_ID) AS [Записей по приходам], (SELECT COUNT(*)
+      FROM dbo.LV_Count c
+      WHERE c.cnt_EmployeeID=e.emp_ID) AS [Пересчётов], (SELECT COUNT(*)
+      FROM dbo.LV_Task t
+      WHERE t.tsk_CreateUserID=u.usr_ID) AS [Задач создано (как пользователь)], ISNULL(CONVERT(varchar(16), (SELECT MAX(l.log_DateTime)
+          FROM dbo.LV_Log l
+          WHERE l.log_UserID=u.usr_ID), 120), N'—') AS [Последняя операция в журнале]
+    FROM dbo.COM_Employee e
+    JOIN dbo.COM_Person p ON p.per_ID=e.emp_PersonID
+    LEFT JOIN dbo.LV_Users u ON u.usr_PersonID=p.per_ID
+    LEFT JOIN dbo.COM_EmployeesByGroup eg ON eg.ebg_EmployeeID=e.emp_ID
+    LEFT JOIN dbo.COM_EmployeeGroup g ON g.egr_ID=eg.ebg_GroupID
+    ORDER BY LTRIM(RTRIM(ISNULL(p.per_LastName, N'') + N' ' + ISNULL(p.per_FirstName, N'')))
+- id: staff-workload.7-3
+  title: Задачи по исполнителям и типам операций
+  group: Нагрузка по задачам
+  kind: таблица
+  description: |
+    Что показывает: Сколько задач выполнил каждый исполнитель по каждому типу операции за период, первая и последняя дата создания задачи.
+    Как считается: LV_Task по фактическому исполнителю и типу операции (подпись из LV_TransactionType и LV_Messages); период по tsk_CreateTime.
+    Примечание: Исполнитель задачи и сотрудник в приходах и пересчётах это COM_Employee (связь подтверждена внешними ключами); создатель задачи это LV_Users. Пользователь в журнале операций (log_UserID) сопоставляется с LV_Users по совпадению номеров, внешнего ключа нет (INFERRED).
+  sql: |
+    SELECT ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(p.per_LastName, N'') + N' ' + ISNULL(p.per_FirstName, N''))), N''), N'Не указан') AS [Исполнитель], ISNULL(m.msg_Greek, ISNULL(tt.trt_MessageCode, N'(тип не указан)')) AS [Тип операции], COUNT(*) AS [Задач], CONVERT(varchar(10), MIN(t.tsk_CreateTime), 120) AS [Первая], CONVERT(varchar(10), MAX(t.tsk_CreateTime), 120) AS [Последняя]
+    FROM dbo.LV_Task t
+    LEFT JOIN dbo.COM_Employee e ON e.emp_ID=t.tsk_ActualUserID
+    LEFT JOIN dbo.COM_Person p ON p.per_ID=e.emp_PersonID
+    LEFT JOIN dbo.LV_TransactionType tt ON tt.trt_ID=t.tsk_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=tt.trt_MessageCode AND m.msg_languageID=4
+    WHERE t.tsk_CreateTime >= :date_from AND t.tsk_CreateTime < DATEADD(day, 1, :date_to)
+    GROUP BY p.per_LastName, p.per_FirstName, tt.trt_MessageCode, m.msg_Greek
+    ORDER BY COUNT(*) DESC, 1
+- id: staff-workload.7-4
+  title: Задачи без исполнителя
+  group: Нагрузка по задачам
+  kind: таблица
+  description: |
+    Что показывает: Сколько задач за период без фактического исполнителя и без ожидаемого исполнителя.
+    Как считается: LV_Task, поля tsk_ActualUserID и tsk_ExpUserID пустые; период по tsk_CreateTime.
+    Примечание: Смысл «ожидаемого исполнителя» в базе не подтверждён; пустое значение может быть нормой для задач без назначения.
+  sql: |
+    SELECT u.p AS [Показатель], u.v AS [Задач], u.t AS [Из скольких], CAST(100.0*u.v/NULLIF(u.t,0) AS decimal(5,1)) AS [Доля, %]
+    FROM (SELECT 1 AS o, N'Без фактического исполнителя' AS p, (SELECT COUNT(*)
+        FROM dbo.LV_Task
+        WHERE tsk_ActualUserID IS NULL AND tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)) AS v, (SELECT COUNT(*)
+        FROM dbo.LV_Task
+        WHERE tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)) AS t
+      UNION ALL SELECT 2, N'Без ожидаемого исполнителя', (SELECT COUNT(*)
+        FROM dbo.LV_Task
+        WHERE tsk_ExpUserID IS NULL AND tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)), (SELECT COUNT(*)
+        FROM dbo.LV_Task
+        WHERE tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to))) u
+    ORDER BY u.o
+- id: staff-workload.7-5
+  title: Журнал операций по пользователям
+  group: Журнал операций
+  kind: таблица
+  description: |
+    Что показывает: Для каждого пользователя: операций, суммарное и среднее время, время пользователя, первая и последняя операция за период.
+    Как считается: LV_Log по log_UserID; пользователь из LV_Users и COM_Person.
+    Примечание: Исполнитель задачи и сотрудник в приходах и пересчётах это COM_Employee (связь подтверждена внешними ключами); создатель задачи это LV_Users. Пользователь в журнале операций (log_UserID) сопоставляется с LV_Users по совпадению номеров, внешнего ключа нет (INFERRED). Единица времени в журнале (log_TotalDuration, log_UserDuration) в базе не подтверждена; вероятно, миллисекунды (INFERRED).
+  sql: |
+    SELECT ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(p.per_LastName, N'') + N' ' + ISNULL(p.per_FirstName, N''))), N''), N'Не указан') AS [Пользователь], ISNULL(u.usr_Login, N'—') AS [Логин], COUNT(*) AS [Операций], SUM(l.log_TotalDuration) AS [Суммарное время (ед. не подтверждена)], CAST(AVG(CAST(l.log_TotalDuration AS float)) AS decimal(18,1)) AS [Среднее на операцию], SUM(l.log_UserDuration) AS [Время пользователя (ед. не подтверждена)], CONVERT(varchar(16), MIN(l.log_DateTime), 120) AS [Первая], CONVERT(varchar(16), MAX(l.log_DateTime), 120) AS [Последняя]
+    FROM dbo.LV_Log l
+    LEFT JOIN dbo.LV_Users u ON u.usr_ID=l.log_UserID
+    LEFT JOIN dbo.COM_Person p ON p.per_ID=u.usr_PersonID
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)
+    GROUP BY p.per_LastName, p.per_FirstName, u.usr_Login
+    ORDER BY COUNT(*) DESC

@@ -1,0 +1,303 @@
+section: reconcile-orders
+title: Сверка расхода с 1С
+source_dashboard: wms-reconcile-orders
+variables: {}
+queries:
+- id: reconcile-orders.5-1
+  title: 'Сверка: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько заказов в WMS, сколько различных кодов заказов пришло от 1С, сколько повторных загрузок и сколько заголовков заказов выгружено в обмен.
+    Как считается: WMS: LV_Order; 1С: IFC_ImportOrderHeader (только с непустым кодом заказа клиента); обмен: IFC_ExportOrderHeader. Повторные загрузки = заголовки сверх первого для того же кода.
+    Примечание: Заказы из 1С сопоставляются с WMS по коду заказа клиента: CustomerOrderCode в обмене и ord_CustomerOrderCode в WMS (по совпадению значений, внешнего ключа нет). Номер документа в выгрузке (OrderCode) с кодом заказа WMS не совпадает; выгрузка связывается с заказом по цепочке очереди: ANT_ExportOrder, затем очередь обмена, затем заголовок выгрузки.
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM dbo.LV_Order) AS [Заказов в WMS], (SELECT COUNT(DISTINCT CustomerOrderCode)
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N'') AS [Кодов заказов из 1С], (SELECT COUNT(*) - COUNT(DISTINCT CustomerOrderCode)
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N'') AS [Повторных загрузок], (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportOrderHeader) AS [Заголовков выгрузки в обмене]
+- id: reconcile-orders.5-2
+  title: Итоги сверки заказов
+  group: Итоги сверки
+  kind: таблица
+  description: |
+    Что показывает: Одиннадцать проверок: сколько расхождений найдено и из какого числа проверенных объектов.
+    Как считается: сопоставление WMS, входящих и выгружаемых заказов по коду заказа клиента и по цепочке очереди; количества сравниваются суммой по заказу.
+    Примечание: Заказы из 1С сопоставляются с WMS по коду заказа клиента: CustomerOrderCode в обмене и ord_CustomerOrderCode в WMS (по совпадению значений, внешнего ключа нет). Номер документа в выгрузке (OrderCode) с кодом заказа WMS не совпадает; выгрузка связывается с заказом по цепочке очереди: ANT_ExportOrder, затем очередь обмена, затем заголовок выгрузки. Количества суммируются по всем строкам заказа, без разбивки по товару и единице измерения. Ожидаемое количество сравнивается только для кодов, загруженных один раз. Смысл кодов 99, 109, 199 и 299 в очередях выгрузки заказов не подтверждён: подписи 99 и 109 перенесены из процедур выгрузки КМ, для 299 в записях везде по 10 попыток (вероятно, лимит).
+  sql: |
+    WITH ih AS (SELECT ID, CustomerOrderCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpShipDate
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N''),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpShipDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT ord_ID AS id, NULLIF(LTRIM(RTRIM(ord_CustomerOrderCode)), N'') COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Order),
+      lvc AS (SELECT code, COUNT(*) AS n_orders
+      FROM lv
+      WHERE code IS NOT NULL
+      GROUP BY code),
+      lvq AS (SELECT lv.code, SUM(i.ori_Quantity) AS q
+      FROM lv
+        LEFT JOIN dbo.LV_OrderItem i ON i.ori_OrderID=lv.id
+      WHERE lv.code IS NOT NULL
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.Quantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportOrderDetails d ON d.OrderID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      ex AS (SELECT e.eor_ID AS id, e.eor_ExportStatus AS st, h.ID AS hid
+      FROM dbo.ANT_ExportOrder e
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueExport q ON q.eqe_ID=e.eor_eqeID
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExportOrderHeader h ON h.ID=q.eqe_ObjectID) SELECT u.p AS [Проверка], u.v AS [Найдено], u.t AS [Из скольких], CAST(100.0*u.v/NULLIF(u.t,0) AS decimal(5,1)) AS [Доля, %]
+    FROM (SELECT 1 AS o, N'Заказов WMS без кода заказа клиента (пустой или отсутствует)' AS p, (SELECT COUNT(*)
+        FROM lv
+        WHERE code IS NULL) AS v, (SELECT COUNT(*)
+        FROM lv) AS t
+      UNION ALL SELECT 2, N'Кодов заказа клиента, на которые приходится несколько заказов WMS', (SELECT COUNT(*)
+        FROM lvc
+        WHERE n_orders>1), (SELECT COUNT(*)
+        FROM lvc)
+      UNION ALL SELECT 3, N'Кодов из 1С, которых нет в WMS', (SELECT COUNT(*)
+        FROM ic
+        WHERE NOT EXISTS (SELECT 1
+          FROM lvc
+          WHERE lvc.code=ic.code)), (SELECT COUNT(*)
+        FROM ic)
+      UNION ALL SELECT 4, N'Кодов из 1С, загруженных больше одного раза', (SELECT COUNT(*)
+        FROM ic
+        WHERE times>1), (SELECT COUNT(*)
+        FROM ic)
+      UNION ALL SELECT 5, N'Заголовков, где LinesCount не равен числу строк', (SELECT COUNT(*)
+        FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader h
+        WHERE h.LinesCount <> (SELECT COUNT(*)
+          FROM MRDN_Exchange.dbo.IFC_ImportOrderDetails d
+          WHERE d.OrderID=h.ID)), (SELECT COUNT(*)
+        FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader)
+      UNION ALL SELECT 6, N'Ожидаемое количество отличается от WMS (коды, загруженные один раз)', (SELECT COUNT(*)
+        FROM impq
+        JOIN lvq ON lvq.code=impq.code
+        WHERE ISNULL(lvq.q,0)<>impq.q), (SELECT COUNT(*)
+        FROM impq
+        JOIN lvq ON lvq.code=impq.code)
+      UNION ALL SELECT 7, N'Записей очереди выгрузки заказов не выгружено (код не 2)', (SELECT COUNT(*)
+        FROM ex
+        WHERE ISNULL(st,-1)<>2), (SELECT COUNT(*)
+        FROM ex)
+      UNION ALL SELECT 8, N'Выгружено (код 2), но заголовка в обмене по цепочке не найдено', (SELECT COUNT(*)
+        FROM ex
+        WHERE st=2 AND hid IS NULL), (SELECT COUNT(*)
+        FROM ex
+        WHERE st=2)
+      UNION ALL SELECT 9, N'Записей очереди смены статуса не выгружено (код не 2)', (SELECT COUNT(*)
+        FROM dbo.ANT_ExportOrderChangeStatus
+        WHERE ISNULL(ocs_ExportStatus,-1)<>2), (SELECT COUNT(*)
+        FROM dbo.ANT_ExportOrderChangeStatus)
+      UNION ALL SELECT 10, N'Записей очереди отмен не выгружено (код не 2)', (SELECT COUNT(*)
+        FROM dbo.ANT_ExportOrderCancel
+        WHERE ISNULL(eco_ExportStatus,-1)<>2), (SELECT COUNT(*)
+        FROM dbo.ANT_ExportOrderCancel)
+      UNION ALL SELECT 11, N'Заголовков из 1С с пустым кодом заказа клиента (в сверку не входят)', (SELECT COUNT(*)
+        FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+        WHERE CustomerOrderCode IS NULL OR LTRIM(RTRIM(CustomerOrderCode))=N''), (SELECT COUNT(*)
+        FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader)) u
+    ORDER BY u.o
+- id: reconcile-orders.5-3
+  title: Повторно загруженные заказы
+  group: Загрузка из 1С
+  kind: таблица
+  description: |
+    Что показывает: Коды заказов, которые 1С передавала больше одного раза: сколько раз, есть ли код в WMS, последняя ожидаемая дата отгрузки.
+    Как считается: IFC_ImportOrderHeader по CustomerOrderCode; TOP 50 по числу загрузок.
+    Примечание: Заказы из 1С сопоставляются с WMS по коду заказа клиента: CustomerOrderCode в обмене и ord_CustomerOrderCode в WMS (по совпадению значений, внешнего ключа нет). Номер документа в выгрузке (OrderCode) с кодом заказа WMS не совпадает; выгрузка связывается с заказом по цепочке очереди: ANT_ExportOrder, затем очередь обмена, затем заголовок выгрузки.
+  sql: |
+    WITH ih AS (SELECT ID, CustomerOrderCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpShipDate
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N''),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpShipDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT ord_ID AS id, NULLIF(LTRIM(RTRIM(ord_CustomerOrderCode)), N'') COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Order),
+      lvc AS (SELECT code, COUNT(*) AS n_orders
+      FROM lv
+      WHERE code IS NOT NULL
+      GROUP BY code),
+      lvq AS (SELECT lv.code, SUM(i.ori_Quantity) AS q
+      FROM lv
+        LEFT JOIN dbo.LV_OrderItem i ON i.ori_OrderID=lv.id
+      WHERE lv.code IS NOT NULL
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.Quantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportOrderDetails d ON d.OrderID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      ex AS (SELECT e.eor_ID AS id, e.eor_ExportStatus AS st, h.ID AS hid
+      FROM dbo.ANT_ExportOrder e
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueExport q ON q.eqe_ID=e.eor_eqeID
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExportOrderHeader h ON h.ID=q.eqe_ObjectID) SELECT TOP 50 ic.code AS [Код заказа клиента], ic.times AS [Раз загружен], CASE WHEN EXISTS (SELECT 1
+      FROM lvc
+      WHERE lvc.code=ic.code) THEN N'да' ELSE N'нет' END AS [Есть в WMS], ISNULL(CONVERT(varchar(10), ic.exp_date, 120), N'—') AS [Ожидаемая отгрузка (последняя)]
+    FROM ic
+    WHERE ic.times>1
+    ORDER BY ic.times DESC, ic.code
+- id: reconcile-orders.5-4
+  title: Коды из 1С, которых нет в WMS
+  group: Загрузка из 1С
+  kind: таблица
+  description: |
+    Что показывает: Коды заказов, пришедшие от 1С, но не найденные в WMS: сколько раз загружены и ожидаемая дата отгрузки.
+    Как считается: IFC_ImportOrderHeader по CustomerOrderCode против LV_Order.ord_CustomerOrderCode; до 100 строк.
+    Примечание: Заказы из 1С сопоставляются с WMS по коду заказа клиента: CustomerOrderCode в обмене и ord_CustomerOrderCode в WMS (по совпадению значений, внешнего ключа нет). Номер документа в выгрузке (OrderCode) с кодом заказа WMS не совпадает; выгрузка связывается с заказом по цепочке очереди: ANT_ExportOrder, затем очередь обмена, затем заголовок выгрузки. Причина отсутствия по данным неизвестна.
+  sql: |
+    WITH ih AS (SELECT ID, CustomerOrderCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpShipDate
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N''),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpShipDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT ord_ID AS id, NULLIF(LTRIM(RTRIM(ord_CustomerOrderCode)), N'') COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Order),
+      lvc AS (SELECT code, COUNT(*) AS n_orders
+      FROM lv
+      WHERE code IS NOT NULL
+      GROUP BY code),
+      lvq AS (SELECT lv.code, SUM(i.ori_Quantity) AS q
+      FROM lv
+        LEFT JOIN dbo.LV_OrderItem i ON i.ori_OrderID=lv.id
+      WHERE lv.code IS NOT NULL
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.Quantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportOrderDetails d ON d.OrderID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      ex AS (SELECT e.eor_ID AS id, e.eor_ExportStatus AS st, h.ID AS hid
+      FROM dbo.ANT_ExportOrder e
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueExport q ON q.eqe_ID=e.eor_eqeID
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExportOrderHeader h ON h.ID=q.eqe_ObjectID) SELECT TOP 100 ic.code AS [Код заказа клиента], ic.times AS [Раз загружен], ISNULL(CONVERT(varchar(10), ic.exp_date, 120), N'—') AS [Ожидаемая отгрузка (последняя)]
+    FROM ic
+    WHERE NOT EXISTS (SELECT 1
+      FROM lvc
+      WHERE lvc.code=ic.code)
+    ORDER BY ic.exp_date DESC, ic.code
+- id: reconcile-orders.5-5
+  title: Заказы с расхождением ожидаемого количества
+  group: Загрузка из 1С
+  kind: таблица
+  description: |
+    Что показывает: Заказы, у которых количество из 1С отличается от количества в заказе WMS.
+    Как считается: сумма IFC_ImportOrderDetails.Quantity против суммы LV_OrderItem.ori_Quantity по коду заказа клиента; только коды, загруженные один раз.
+    Примечание: Количества суммируются по всем строкам заказа, без разбивки по товару и единице измерения. Заказы из 1С сопоставляются с WMS по коду заказа клиента: CustomerOrderCode в обмене и ord_CustomerOrderCode в WMS (по совпадению значений, внешнего ключа нет). Номер документа в выгрузке (OrderCode) с кодом заказа WMS не совпадает; выгрузка связывается с заказом по цепочке очереди: ANT_ExportOrder, затем очередь обмена, затем заголовок выгрузки.
+  sql: |
+    WITH ih AS (SELECT ID, CustomerOrderCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpShipDate
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL AND LTRIM(RTRIM(CustomerOrderCode))<>N''),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpShipDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT ord_ID AS id, NULLIF(LTRIM(RTRIM(ord_CustomerOrderCode)), N'') COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Order),
+      lvc AS (SELECT code, COUNT(*) AS n_orders
+      FROM lv
+      WHERE code IS NOT NULL
+      GROUP BY code),
+      lvq AS (SELECT lv.code, SUM(i.ori_Quantity) AS q
+      FROM lv
+        LEFT JOIN dbo.LV_OrderItem i ON i.ori_OrderID=lv.id
+      WHERE lv.code IS NOT NULL
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.Quantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportOrderDetails d ON d.OrderID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      ex AS (SELECT e.eor_ID AS id, e.eor_ExportStatus AS st, h.ID AS hid
+      FROM dbo.ANT_ExportOrder e
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExchangeQueueExport q ON q.eqe_ID=e.eor_eqeID
+        LEFT JOIN MRDN_Exchange.dbo.IFC_ExportOrderHeader h ON h.ID=q.eqe_ObjectID) SELECT impq.code AS [Код заказа клиента], impq.q AS [Количество в 1С], ISNULL(lvq.q,0) AS [Количество в WMS], ISNULL(lvq.q,0) - impq.q AS [Разница (WMS минус 1С)]
+    FROM impq
+    JOIN lvq ON lvq.code=impq.code
+    WHERE ISNULL(lvq.q,0)<>impq.q
+    ORDER BY ABS(ISNULL(lvq.q,0) - impq.q) DESC, impq.code
+- id: reconcile-orders.5-6
+  title: Очередь выгрузки заказов по статусам
+  group: Выгрузка в 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи очереди выгрузки заказов по статусу: сколько, есть ли запись очереди обмена, максимум попыток, период.
+    Как считается: ANT_ExportOrder по eor_ExportStatus; запись очереди = eor_eqeID заполнен.
+    Примечание: Смысл кодов 99, 109, 199 и 299 в очередях выгрузки заказов не подтверждён: подписи 99 и 109 перенесены из процедур выгрузки КМ, для 299 в записях везде по 10 попыток (вероятно, лимит).
+  sql: |
+    SELECT e.eor_ExportStatus AS [Код], CASE e.eor_ExportStatus WHEN 2 THEN N'Выгружено' WHEN 99 THEN N'Не выгружено: откат (по логике процедур КМ; для заказов не подтверждено)' WHEN 109 THEN N'Ошибка: исключение при выгрузке (по логике процедур КМ; для заказов не подтверждено)' WHEN 299 THEN N'Вероятно, исчерпан лимит попыток (не подтверждено)' ELSE N'Код не расшифрован' END AS [Статус], COUNT(*) AS [Записей], SUM(CASE WHEN e.eor_eqeID IS NOT NULL THEN 1 ELSE 0 END) AS [С записью очереди обмена], MAX(e.eor_TryNumber) AS [Макс. попыток], CONVERT(varchar(10), MIN(e.eor_DateInsert), 120) AS [Первая], CONVERT(varchar(10), MAX(e.eor_DateInsert), 120) AS [Последняя]
+    FROM dbo.ANT_ExportOrder e
+    GROUP BY e.eor_ExportStatus
+    ORDER BY COUNT(*) DESC
+- id: reconcile-orders.5-7
+  title: Очередь выгрузки отмен заказов по статусам
+  group: Выгрузка в 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи очереди выгрузки отмен по статусу: сколько, есть ли запись очереди обмена, максимум попыток, период.
+    Как считается: ANT_ExportOrderCancel по eco_ExportStatus.
+    Примечание: Смысл кодов 99, 109, 199 и 299 в очередях выгрузки заказов не подтверждён: подписи 99 и 109 перенесены из процедур выгрузки КМ, для 299 в записях везде по 10 попыток (вероятно, лимит).
+  sql: |
+    SELECT e.eco_ExportStatus AS [Код], CASE e.eco_ExportStatus WHEN 2 THEN N'Выгружено' WHEN 99 THEN N'Не выгружено: откат (по логике процедур КМ; для заказов не подтверждено)' WHEN 109 THEN N'Ошибка: исключение при выгрузке (по логике процедур КМ; для заказов не подтверждено)' WHEN 299 THEN N'Вероятно, исчерпан лимит попыток (не подтверждено)' ELSE N'Код не расшифрован' END AS [Статус], COUNT(*) AS [Записей], SUM(CASE WHEN e.eco_eqeID IS NOT NULL THEN 1 ELSE 0 END) AS [С записью очереди обмена], MAX(e.eco_TryNumber) AS [Макс. попыток], CONVERT(varchar(10), MIN(e.eco_InsertDate), 120) AS [Первая], CONVERT(varchar(10), MAX(e.eco_InsertDate), 120) AS [Последняя]
+    FROM dbo.ANT_ExportOrderCancel e
+    GROUP BY e.eco_ExportStatus
+    ORDER BY COUNT(*) DESC
+- id: reconcile-orders.5-8
+  title: 'Смена статуса заказа: очередь выгрузки'
+  group: Выгрузка в 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи очереди выгрузки смены статуса: статус выгрузки и статус заказа (с кодом, который уходит в 1С), сколько записей и максимум попыток.
+    Как считается: ANT_ExportOrderChangeStatus; статус заказа из LV_OrderStatus (подпись через LV_Messages, язык 4), код 1С = ors_Code.
+    Примечание: Код статуса 1С взят из LV_OrderStatus.ors_Code; он совпал со значениями StatusCode в выгрузке (35, 40, 55, 60) по числу записей. Значения статуса заказа, которых нет в LV_OrderStatus (например, 199), показаны как есть. Смысл кодов 99, 109, 199 и 299 в очередях выгрузки заказов не подтверждён: подписи 99 и 109 перенесены из процедур выгрузки КМ, для 299 в записях везде по 10 попыток (вероятно, лимит).
+  sql: |
+    SELECT c.ocs_ExportStatus AS [Код выгрузки], CASE c.ocs_ExportStatus WHEN 2 THEN N'Выгружено' WHEN 99 THEN N'Не выгружено: откат (по логике процедур КМ; для заказов не подтверждено)' WHEN 109 THEN N'Ошибка: исключение при выгрузке (по логике процедур КМ; для заказов не подтверждено)' WHEN 299 THEN N'Вероятно, исчерпан лимит попыток (не подтверждено)' ELSE N'Код не расшифрован' END AS [Статус выгрузки], ISNULL(m.msg_Greek, CASE WHEN s.ors_ID IS NULL THEN N'Нет такого статуса в LV_OrderStatus (значение ' + CAST(c.ocs_OrdStatusID AS nvarchar(10)) + N')' ELSE s.ors_MessageCode END) AS [Статус заказа], ISNULL(s.ors_Code, N'—') AS [Код статуса для 1С], COUNT(*) AS [Записей], MAX(c.ocs_TryNumber) AS [Макс. попыток]
+    FROM dbo.ANT_ExportOrderChangeStatus c
+    LEFT JOIN dbo.LV_OrderStatus s ON s.ors_ID=c.ocs_OrdStatusID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=s.ors_MessageCode AND m.msg_languageID=4
+    GROUP BY c.ocs_ExportStatus, c.ocs_OrdStatusID, s.ors_ID, s.ors_Code, s.ors_MessageCode, m.msg_Greek
+    ORDER BY c.ocs_ExportStatus, c.ocs_OrdStatusID
+- id: reconcile-orders.5-9
+  title: Коды заказов с нелатинскими символами
+  group: Качество кодов
+  kind: таблица
+  description: |
+    Что показывает: Коды заказов, в которых есть символ вне латиницы и цифр: где найден, номер позиции и код символа.
+    Как считается: проверка каждого символа кода (UNICODE больше 127) в IFC_ImportOrderHeader, IFC_ExportOrderHeader и LV_Order; до 200 строк.
+    Примечание: Такой код не совпадёт по тексту с кодом, набранным латиницей. Значение «Акт списания» в выгрузке это текст, а не номер заказа. Код символа 1052 = кириллическая «М».
+  sql: |
+    WITH n AS (SELECT TOP 40 ROW_NUMBER() OVER (ORDER BY (SELECT 1)) AS i
+      FROM sys.all_objects),
+      c AS (SELECT N'Входящие из 1С' AS src, CustomerOrderCode AS code
+      FROM MRDN_Exchange.dbo.IFC_ImportOrderHeader
+      WHERE CustomerOrderCode IS NOT NULL
+      UNION ALL SELECT N'Выгрузка в обмен', OrderCode
+      FROM MRDN_Exchange.dbo.IFC_ExportOrderHeader
+      WHERE OrderCode IS NOT NULL
+      UNION ALL SELECT N'WMS (код заказа клиента)', ord_CustomerOrderCode
+      FROM dbo.LV_Order
+      WHERE ord_CustomerOrderCode IS NOT NULL
+      UNION ALL SELECT N'WMS (код заказа)', ord_Code
+      FROM dbo.LV_Order
+      WHERE ord_Code IS NOT NULL) SELECT TOP 200 c.src AS [Где найден], c.code AS [Код], MIN(n.i) AS [Позиция символа], MIN(UNICODE(SUBSTRING(c.code, n.i, 1))) AS [Код символа]
+    FROM c
+    JOIN n ON n.i<=LEN(c.code) AND UNICODE(SUBSTRING(c.code, n.i, 1))>127
+    GROUP BY c.src, c.code
+    ORDER BY c.src, c.code

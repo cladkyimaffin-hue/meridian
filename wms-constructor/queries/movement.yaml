@@ -1,0 +1,104 @@
+section: movement
+title: Движение товара
+source_dashboard: wms-movement
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -90d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: movement.8-1
+  title: 'Операции: сводка'
+  group: Обзор движения за период
+  kind: сводка
+  description: |
+    Что показывает: Сколько операций и строк движения остатков за период; когда была последняя операция вообще.
+    Как считается: операции с датой в выбранном периоде; «Дней без операций» считается от последней операции за всё время.
+    Примечание: После запуска 1С эти цифры станут рабочими показателями склада.
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM dbo.LV_Log
+      WHERE log_DateTime >= :date_from AND log_DateTime < DATEADD(day, 1, :date_to)) AS [Операций за период], (SELECT COUNT(*)
+      FROM dbo.LV_LogStock s
+      JOIN dbo.LV_Log l ON l.log_ID=s.lsk_LogID
+      WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)) AS [Строк движения остатков], (SELECT COUNT(DISTINCT log_TransactionTypeID)
+      FROM dbo.LV_Log
+      WHERE log_DateTime >= :date_from AND log_DateTime < DATEADD(day, 1, :date_to)) AS [Видов операций], (SELECT CONVERT(varchar(16), MAX(log_DateTime), 120)
+      FROM dbo.LV_Log) AS [Последняя операция], (SELECT DATEDIFF(day, MAX(log_DateTime), GETDATE())
+      FROM dbo.LV_Log) AS [Дней без операций]
+- id: movement.8-2
+  title: Операции по типам
+  group: Обзор движения за период
+  kind: таблица
+  description: |
+    Что показывает: Каждый тип операции: сколько раз выполнялась за период, сколько строк движения остатков она дала, первая и последняя дата.
+    Как считается: LV_Log, тип из справочника LV_TransactionType (русские названия из LV_Messages); строки движения из LV_LogStock.
+    Примечание: «Отмечено выгруженным» это признак log_ExportedLED; его смысл уточнить у разработчика WMS.
+  sql: |
+    SELECT ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип операции], COUNT(*) AS [Операций], SUM(ISNULL(s.n,0)) AS [Строк движения], SUM(CASE WHEN l.log_ExportedLED=1 THEN 1 ELSE 0 END) AS [Отмечено выгруженным], MIN(l.log_DateTime) AS [Первая], MAX(l.log_DateTime) AS [Последняя]
+    FROM dbo.LV_Log l
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=l.log_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=t.trt_MessageCode AND m.msg_languageID=4
+    LEFT JOIN (SELECT lsk_LogID, COUNT(*) AS n
+      FROM dbo.LV_LogStock
+      GROUP BY lsk_LogID) s ON s.lsk_LogID=l.log_ID
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)
+    GROUP BY ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)'))
+    ORDER BY COUNT(*) DESC
+- id: movement.8-3
+  title: Операции по дням и типам
+  group: Обзор движения за период
+  kind: timeseries
+  description: |
+    Что показывает: Сколько операций каждого типа выполнялось по дням.
+    Как считается: LV_Log, группировка по дню и типу операции.
+    Примечание: Дни без операций на графике пустые.
+  sql: |
+    SELECT CAST(l.log_DateTime AS date) AS [Дата],
+      ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS metric, COUNT(*) AS value
+    FROM dbo.LV_Log l
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=l.log_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=t.trt_MessageCode AND m.msg_languageID=4
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(l.log_DateTime AS date),
+      ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)'))
+    ORDER BY 1
+- id: movement.8-4
+  title: Самые «подвижные» ячейки
+  group: Ячейки и последние операции
+  kind: таблица
+  description: |
+    Что показывает: 20 ячеек с наибольшим числом строк движения остатков за период: код ячейки, зона, сколько строк, последняя операция.
+    Как считается: LV_LogStock.lsk_LocationID → LV_Location (код ячейки), зона из LV_LocZone/LV_Zone.
+    Примечание: Строки движения без указания ячейки в список не входят.
+  sql: |
+    SELECT TOP 20 loc.loc_Code AS [Ячейка], ISNULL(z.zon_Description, N'Без зоны') AS [Зона], COUNT(*) AS [Строк движения], MAX(l.log_DateTime) AS [Последняя операция]
+    FROM dbo.LV_LogStock s
+    JOIN dbo.LV_Log l ON l.log_ID=s.lsk_LogID
+    JOIN dbo.LV_Location loc ON loc.loc_ID=s.lsk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=loc.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)
+    GROUP BY loc.loc_Code, z.zon_Description
+    ORDER BY COUNT(*) DESC, MAX(l.log_DateTime) DESC
+- id: movement.8-5
+  title: Последние операции
+  group: Ячейки и последние операции
+  kind: таблица
+  description: |
+    Что показывает: 30 последних операций за период: время, тип, сколько строк движения, код задачи, признак выгрузки.
+    Как считается: LV_Log с типом операции и числом строк в LV_LogStock.
+    Примечание: Исполнитель (пользователь) не выводится.
+  sql: |
+    SELECT TOP 30 l.log_DateTime AS [Время], ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип операции], ISNULL(s.n,0) AS [Строк движения], ISNULL(CAST(l.log_TaskCode AS nvarchar(40)), N'—') AS [Код задачи], CASE WHEN l.log_ExportedLED=1 THEN N'Да' ELSE N'Нет' END AS [Отмечено выгруженным]
+    FROM dbo.LV_Log l
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=l.log_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=t.trt_MessageCode AND m.msg_languageID=4
+    LEFT JOIN (SELECT lsk_LogID, COUNT(*) AS n
+      FROM dbo.LV_LogStock
+      GROUP BY lsk_LogID) s ON s.lsk_LogID=l.log_ID
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to)
+    ORDER BY l.log_DateTime DESC, l.log_ID DESC

@@ -1,0 +1,115 @@
+section: inventory
+title: 'Инвентаризация ячеек: покрытие и пересчёты'
+source_dashboard: wms-inventory
+variables: {}
+queries:
+- id: inventory.4-1
+  title: 'Инвентаризация: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько ячеек всего, с остатком, пересчитано, сколько ячеек с остатком не пересчитывались, сколько контейнеров без пересчёта, планов и пересчётов.
+    Как считается: ячейки из LV_Location, остаток из LV_Stock, контейнеры из LV_StockContainer (stc_LastCountDate), планы и пересчёты из LV_CountPlan и LV_Count.
+    Примечание: Ячейка считается пересчитанной, если у неё заполнена дата пересчёта (loc_CountDate); «с остатком» значит, что в остатках (LV_Stock) есть строки по этой ячейке.
+  sql: |
+    WITH c AS (SELECT l.loc_ID, l.loc_CountDate, ISNULL(z.zon_Description, N'Без зоны') AS zone, CASE WHEN EXISTS (SELECT 1
+        FROM dbo.LV_Stock s
+        WHERE s.stk_LocationID=l.loc_ID) THEN 1 ELSE 0 END AS has_stock
+      FROM dbo.LV_Location l
+        LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+        LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID ) SELECT COUNT(*) AS [Ячеек всего], SUM(has_stock) AS [Ячеек с остатком], SUM(CASE WHEN loc_CountDate IS NOT NULL THEN 1 ELSE 0 END) AS [Пересчитано], SUM(CASE WHEN has_stock=1 AND loc_CountDate IS NULL THEN 1 ELSE 0 END) AS [С остатком, не пересчитаны], (SELECT COUNT(*)
+      FROM dbo.LV_StockContainer
+      WHERE stc_LastCountDate IS NULL) AS [Контейнеров без пересчёта], (SELECT COUNT(*)
+      FROM dbo.LV_CountPlan) AS [Планов пересчёта], (SELECT COUNT(*)
+      FROM dbo.LV_Count) AS [Пересчётов]
+    FROM c
+- id: inventory.4-2
+  title: Покрытие по зонам
+  group: Покрытие пересчётами
+  kind: таблица
+  description: |
+    Что показывает: Для каждой зоны: ячеек, ячеек с остатком, пересчитано, с остатком не пересчитаны и доля пересчитанных среди ячеек с остатком.
+    Как считается: LV_Location с зоной из LV_LocZone; дата пересчёта loc_CountDate; остаток из LV_Stock.
+    Примечание: Ячейка считается пересчитанной, если у неё заполнена дата пересчёта (loc_CountDate); «с остатком» значит, что в остатках (LV_Stock) есть строки по этой ячейке. Ячейки без зоны показаны как «Без зоны».
+  sql: |
+    WITH c AS (SELECT l.loc_ID, l.loc_CountDate, ISNULL(z.zon_Description, N'Без зоны') AS zone, CASE WHEN EXISTS (SELECT 1
+        FROM dbo.LV_Stock s
+        WHERE s.stk_LocationID=l.loc_ID) THEN 1 ELSE 0 END AS has_stock
+      FROM dbo.LV_Location l
+        LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+        LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID ) SELECT zone AS [Зона], COUNT(*) AS [Ячеек], SUM(has_stock) AS [С остатком], SUM(CASE WHEN loc_CountDate IS NOT NULL THEN 1 ELSE 0 END) AS [Пересчитано], SUM(CASE WHEN has_stock=1 AND loc_CountDate IS NULL THEN 1 ELSE 0 END) AS [С остатком, не пересчитаны], CAST(100.0*SUM(CASE WHEN has_stock=1 AND loc_CountDate IS NOT NULL THEN 1 ELSE 0 END)/NULLIF(SUM(has_stock),0) AS decimal(5,1)) AS [Покрыто, % ячеек с остатком]
+    FROM c
+    GROUP BY zone
+    ORDER BY SUM(has_stock) DESC, zone
+- id: inventory.4-3
+  title: Давность последнего пересчёта (ячейки с остатком)
+  group: Покрытие пересчётами
+  kind: таблица
+  description: |
+    Что показывает: Сколько ячеек с остатком пересчитывалось недавно, давно или не пересчитывалось никогда.
+    Как считается: дни от loc_CountDate до текущего момента на сервере базы; ячейки без даты считаются «пересчёта не было».
+    Примечание: Ячейка считается пересчитанной, если у неё заполнена дата пересчёта (loc_CountDate); «с остатком» значит, что в остатках (LV_Stock) есть строки по этой ячейке.
+  sql: |
+    WITH c AS (SELECT l.loc_ID, CASE WHEN l.loc_CountDate IS NULL THEN 6 WHEN DATEDIFF(day, l.loc_CountDate, GETDATE())<=30 THEN 1 WHEN DATEDIFF(day, l.loc_CountDate, GETDATE())<=90 THEN 2 WHEN DATEDIFF(day, l.loc_CountDate, GETDATE())<=180 THEN 3 WHEN DATEDIFF(day, l.loc_CountDate, GETDATE())<=365 THEN 4 ELSE 5 END AS b, CASE WHEN EXISTS (SELECT 1
+        FROM dbo.LV_Stock s
+        WHERE s.stk_LocationID=l.loc_ID) THEN 1 ELSE 0 END AS has_stock
+      FROM dbo.LV_Location l) SELECT v.name AS [Давность последнего пересчёта], COUNT(c.loc_ID) AS [Ячеек с остатком]
+    FROM (VALUES (1, N'до 30 дней'), (2, N'31–90 дней'), (3, N'91–180 дней'), (4, N'181–365 дней'), (5, N'больше года'), (6, N'пересчёта не было')) v(b, name)
+    LEFT JOIN c ON c.b=v.b AND c.has_stock=1
+    GROUP BY v.b, v.name
+    ORDER BY v.b
+- id: inventory.4-4
+  title: Планы пересчёта
+  group: Планы и пересчёты
+  kind: таблица
+  description: |
+    Что показывает: Каждый план пересчёта: код, описание, сырые коды статуса и типа, даты, сколько ячеек в плане, сколько пересчётов выполнено и сколько из них обновили остаток.
+    Как считается: LV_CountPlan, ячейки плана из LV_CountPlanLocation, пересчёты из LV_Count.
+    Примечание: Расшифровки кодов статуса и типа пересчёта в базе нет: показаны сырые коды.
+  sql: |
+    SELECT p.cpn_code AS [Код плана], ISNULL(p.cpn_Description, N'—') AS [Описание], p.cpn_StatusID AS [Код статуса], p.cpn_CountTypeID AS [Код типа], ISNULL(CONVERT(varchar(10), p.cpn_CreateDate, 120), N'—') AS [Создан], ISNULL(CONVERT(varchar(10), p.cpn_StartDate, 120), N'—') AS [Начат], ISNULL(CONVERT(varchar(10), p.cpn_EndDate, 120), N'—') AS [Окончание], (SELECT COUNT(*)
+      FROM dbo.LV_CountPlanLocation x
+      WHERE x.clc_CountPlanID=p.cpn_ID) AS [Ячеек в плане], (SELECT COUNT(*)
+      FROM dbo.LV_Count c
+      JOIN dbo.LV_CountPlanLocation pl ON pl.clc_ID=c.cnt_CountPlanLocID
+      WHERE pl.clc_CountPlanID=p.cpn_ID) AS [Пересчётов], (SELECT COUNT(*)
+      FROM dbo.LV_Count c
+      JOIN dbo.LV_CountPlanLocation pl ON pl.clc_ID=c.cnt_CountPlanLocID
+      WHERE pl.clc_CountPlanID=p.cpn_ID AND c.cnt_StockUpdatedLED=1) AS [Обновили остаток]
+    FROM dbo.LV_CountPlan p
+    ORDER BY p.cpn_CreateDate DESC, p.cpn_code
+- id: inventory.4-5
+  title: Расхождения по планам
+  group: Планы и пересчёты
+  kind: таблица
+  description: |
+    Что показывает: По каждому плану: сколько пересчётов с флагом «расхождение найдено» и сколько записей расхождений по остатку.
+    Как считается: LV_Count (cnt_DiscrepancyFoundLED = 1) и LV_CountStockDif через ячейку плана.
+    Примечание: Эти два источника могут не совпадать; какой из них верный, по данным не определить.
+  sql: |
+    SELECT p.cpn_code AS [Код плана], (SELECT COUNT(*)
+      FROM dbo.LV_Count c
+      JOIN dbo.LV_CountPlanLocation pl ON pl.clc_ID=c.cnt_CountPlanLocID
+      WHERE pl.clc_CountPlanID=p.cpn_ID AND c.cnt_DiscrepancyFoundLED=1) AS [Пересчётов с флагом расхождения], (SELECT COUNT(*)
+      FROM dbo.LV_CountStockDif d
+      JOIN dbo.LV_CountPlanLocation pl2 ON pl2.clc_ID=d.csd_CountPlanLocID
+      WHERE pl2.clc_CountPlanID=p.cpn_ID) AS [Записей расхождений по остатку]
+    FROM dbo.LV_CountPlan p
+    ORDER BY p.cpn_CreateDate DESC, p.cpn_code
+- id: inventory.4-6
+  title: Ячейки с остатком, которые ещё не пересчитывались
+  group: Ячейки с остатком без пересчёта
+  kind: таблица
+  description: |
+    Что показывает: Ячейки, где лежит остаток, но даты пересчёта нет: зона, строк остатка, товаров и контейнеров.
+    Как считается: LV_Stock по ячейке, у которой loc_CountDate пуст; до 200 строк, сначала ячейки с большим числом строк остатка.
+    Примечание: Ячейка считается пересчитанной, если у неё заполнена дата пересчёта (loc_CountDate); «с остатком» значит, что в остатках (LV_Stock) есть строки по этой ячейке.
+  sql: |
+    SELECT TOP 200 l.loc_Code AS [Ячейка], ISNULL(z.zon_Description, N'Без зоны') AS [Зона], COUNT(*) AS [Строк остатка], COUNT(DISTINCT s.stk_ProductID) AS [Товаров], COUNT(DISTINCT s.stk_ContainerID) AS [Контейнеров]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_Location l ON l.loc_ID=s.stk_LocationID
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    WHERE l.loc_CountDate IS NULL
+    GROUP BY l.loc_Code, z.zon_Description
+    ORDER BY COUNT(*) DESC, l.loc_Code

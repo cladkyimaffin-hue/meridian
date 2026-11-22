@@ -1,0 +1,152 @@
+section: product-movement
+title: Движение по товару
+source_dashboard: wms-product-movement
+variables:
+  tovar:
+    label: Товар (код или часть названия)
+    type: text
+  date_from:
+    label: С даты
+    type: date
+    default: -90d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: product-movement.6-1
+  title: 'Движение: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько товаров двигалось за период, сколько операций, строк движения и ячеек; когда была последняя операция вообще.
+    Как считается: строки LV_LogStock, дата и операция из LV_Log; период и фильтр «Товар» применяются.
+    Примечание: Последняя операция вообще считается по всему журналу и от периода не зависит.
+  sql: |
+    SELECT COUNT(DISTINCT ls.lsk_ProductID) AS [Товаров с движением], COUNT(DISTINCT l.log_ID) AS [Операций], COUNT(*) AS [Строк движения], COUNT(DISTINCT ls.lsk_LocationID) AS [Ячеек], ISNULL(CONVERT(varchar(16), (SELECT MAX(log_DateTime)
+          FROM dbo.LV_Log), 120), N'—') AS [Последняя операция вообще]
+    FROM dbo.LV_LogStock ls
+    JOIN dbo.LV_Log l ON l.log_ID=ls.lsk_LogID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=ls.lsk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=ls.lsk_ProductID
+    LEFT JOIN dbo.LV_ItemUnit iu ON iu.itu_ID=ls.lsk_ItemUnitID
+    LEFT JOIN dbo.LV_Unit u ON u.unt_ID=iu.itu_UnitID
+    LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to) AND (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')
+- id: product-movement.6-2
+  title: Топ-30 товаров по движению за период
+  group: Движение по товарам
+  kind: таблица
+  description: |
+    Что показывает: Товары с наибольшим числом строк движения за период: операций, строк, сумма «+», сумма «−», ячеек, последнее движение.
+    Как считается: LV_LogStock по товару и единице за выбранный период; сначала товары с большим числом строк.
+    Примечание: Знак количества в журнале: «+» это поступление в ячейку, «−» убыль из ячейки; так ведут себя типы операций (приход только «+», отгрузка в основном «−», перемещения дают пары «+» и «−»), но в документации это не подтверждено. Количества суммируются только внутри одной единицы измерения (штука, пара, метр, комплект).
+  sql: |
+    SELECT TOP 30 ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], ISNULL(ul.untl_Description, N'—') AS [Единица], COUNT(DISTINCT l.log_ID) AS [Операций], COUNT(*) AS [Строк], SUM(CASE WHEN ls.lsk_CUQuantity>0 THEN ls.lsk_CUQuantity ELSE 0 END) AS [Сумма «+»], SUM(CASE WHEN ls.lsk_CUQuantity<0 THEN -ls.lsk_CUQuantity ELSE 0 END) AS [Сумма «−» (модуль)], COUNT(DISTINCT ls.lsk_LocationID) AS [Ячеек], CONVERT(varchar(16), MAX(l.log_DateTime), 120) AS [Последнее движение]
+    FROM dbo.LV_LogStock ls
+    JOIN dbo.LV_Log l ON l.log_ID=ls.lsk_LogID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=ls.lsk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=ls.lsk_ProductID
+    LEFT JOIN dbo.LV_ItemUnit iu ON iu.itu_ID=ls.lsk_ItemUnitID
+    LEFT JOIN dbo.LV_Unit u ON u.unt_ID=iu.itu_UnitID
+    LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+    WHERE l.log_DateTime >= :date_from AND l.log_DateTime < DATEADD(day, 1, :date_to) AND (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')GROUP BY ls.lsk_ProductID, p.prd_PrimaryCode, pn.d, ul.untl_Description
+    ORDER BY COUNT(*) DESC, p.prd_PrimaryCode
+- id: product-movement.6-3
+  title: Движение по месяцам
+  group: Движение по товарам
+  kind: таблица
+  description: |
+    Что показывает: Сколько товаров, операций и строк движения за каждый месяц всей истории журнала.
+    Как считается: LV_LogStock по месяцу даты операции; период не применяется, фильтр «Товар» применяется.
+    Примечание: Показывает, когда склад работал активно.
+  sql: |
+    SELECT CONVERT(varchar(7), l.log_DateTime, 120) AS [Месяц], COUNT(DISTINCT ls.lsk_ProductID) AS [Товаров], COUNT(DISTINCT l.log_ID) AS [Операций], COUNT(*) AS [Строк]
+    FROM dbo.LV_LogStock ls
+    JOIN dbo.LV_Log l ON l.log_ID=ls.lsk_LogID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=ls.lsk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=ls.lsk_ProductID
+    LEFT JOIN dbo.LV_ItemUnit iu ON iu.itu_ID=ls.lsk_ItemUnitID
+    LEFT JOIN dbo.LV_Unit u ON u.unt_ID=iu.itu_UnitID
+    LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+    WHERE (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')GROUP BY CONVERT(varchar(7), l.log_DateTime, 120)
+    ORDER BY 1 DESC
+- id: product-movement.6-4
+  title: 'Товары на остатке: давно без движения'
+  group: Контроль
+  kind: таблица
+  description: |
+    Что показывает: Товары, лежащие на остатке: остаток, дата последнего движения по журналу и сколько дней прошло.
+    Как считается: остаток из LV_Stock по товару и единице, последнее движение из LV_LogStock и LV_Log; TOP 100, сначала самые давние.
+    Примечание: Количества суммируются только внутри одной единицы измерения (штука, пара, метр, комплект). Период не применяется, фильтр «Товар» применяется.
+  sql: |
+    WITH st AS (SELECT s.stk_ProductID AS pid, ISNULL(ul.untl_Description, N'—') AS unit, SUM(s.stk_CUQuantity) AS q
+      FROM dbo.LV_Stock s
+        LEFT JOIN dbo.LV_ItemUnit iu ON iu.itu_ID=s.stk_CUItemUnitID
+        LEFT JOIN dbo.LV_Unit u ON u.unt_ID=iu.itu_UnitID
+        LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+      GROUP BY s.stk_ProductID, ul.untl_Description),
+      lm AS (SELECT x.lsk_ProductID AS pid, MAX(l.log_DateTime) AS d
+      FROM dbo.LV_LogStock x
+      JOIN dbo.LV_Log l ON l.log_ID=x.lsk_LogID
+      GROUP BY x.lsk_ProductID) SELECT TOP 100 ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], st.unit AS [Единица], st.q AS [Остаток], ISNULL(CONVERT(varchar(10), lm.d, 120), N'нет в журнале') AS [Последнее движение], ISNULL(DATEDIFF(day, lm.d, GETDATE()), 99999) AS [Дней без движения]
+    FROM st
+    LEFT JOIN lm ON lm.pid=st.pid
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=st.pid
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=st.pid
+    WHERE (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')ORDER BY ISNULL(lm.d, '19000101'),
+      p.prd_PrimaryCode
+- id: product-movement.6-5
+  title: Журнал движения против остатка
+  group: Контроль
+  kind: таблица
+  description: |
+    Что показывает: Товары, у которых сумма количеств журнала не равна остатку: по журналу, на остатке, разница.
+    Как считается: SUM(LV_LogStock.lsk_CUQuantity) по товару против SUM(LV_Stock.stk_CUQuantity).
+    Примечание: Знак количества в журнале: «+» это поступление в ячейку, «−» убыль из ячейки; так ведут себя типы операций (приход только «+», отгрузка в основном «−», перемещения дают пары «+» и «−»), но в документации это не подтверждено. Суммы по всем единицам товара вместе. Журнал может быть неполным с начала работы склада (INFERRED). Период не применяется.
+  sql: |
+    WITH lg AS (SELECT lsk_ProductID AS pid, SUM(lsk_CUQuantity) AS q
+      FROM dbo.LV_LogStock
+      GROUP BY lsk_ProductID),
+      st AS (SELECT stk_ProductID AS pid, SUM(stk_CUQuantity) AS q
+      FROM dbo.LV_Stock
+      GROUP BY stk_ProductID),
+      j AS (SELECT COALESCE(lg.pid, st.pid) AS pid, ISNULL(lg.q,0) AS lq, ISNULL(st.q,0) AS sq
+      FROM lg
+        FULL JOIN st ON st.pid=lg.pid) SELECT ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], j.lq AS [По журналу], j.sq AS [На остатке], j.sq - j.lq AS [Разница (остаток − журнал)]
+    FROM j
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=j.pid
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=j.pid
+    WHERE j.lq<>j.sq AND (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')ORDER BY ABS(j.sq - j.lq) DESC, p.prd_PrimaryCode
+- id: product-movement.6-6
+  title: История движения по товару
+  group: История движения товара
+  kind: таблица
+  description: |
+    Что показывает: Последние строки движения: время, тип операции, ячейка, товар, количество со знаком, единица, код задачи.
+    Как считается: LV_LogStock с датой и типом из LV_Log и справочников; до 200 строк, сначала новые; период не применяется.
+    Примечание: Знак количества в журнале: «+» это поступление в ячейку, «−» убыль из ячейки; так ведут себя типы операций (приход только «+», отгрузка в основном «−», перемещения дают пары «+» и «−»), но в документации это не подтверждено. Введите код или часть названия в фильтре «Товар», чтобы увидеть историю нужного товара.
+  sql: |
+    SELECT TOP 200 CONVERT(varchar(16), l.log_DateTime, 120) AS [Время], ISNULL(m.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип операции], ISNULL(loc.loc_Code, N'—') AS [Ячейка], ISNULL(p.prd_PrimaryCode, N'—') AS [Код товара], LEFT(ISNULL(pn.d, N'—'), 70) AS [Название товара], ls.lsk_CUQuantity AS [Количество (+/−)], ISNULL(ul.untl_Description, N'—') AS [Единица], ISNULL(l.log_TaskCode, N'—') AS [Код задачи]
+    FROM dbo.LV_LogStock ls
+    JOIN dbo.LV_Log l ON l.log_ID=ls.lsk_LogID
+    LEFT JOIN dbo.LV_Product p ON p.prd_ID=ls.lsk_ProductID
+    LEFT JOIN (SELECT prdl_ProductID AS pid, MAX(prdl_Description) AS d
+      FROM dbo.LV_ProductLang
+      GROUP BY prdl_ProductID) pn ON pn.pid=ls.lsk_ProductID
+    LEFT JOIN dbo.LV_ItemUnit iu ON iu.itu_ID=ls.lsk_ItemUnitID
+    LEFT JOIN dbo.LV_Unit u ON u.unt_ID=iu.itu_UnitID
+    LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+    LEFT JOIN dbo.LV_Location loc ON loc.loc_ID=ls.lsk_LocationID
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=l.log_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages m ON m.msg_code=t.trt_MessageCode AND m.msg_languageID=4
+    WHERE (:tovar=N'' OR p.prd_PrimaryCode LIKE N'%'+:tovar+N'%' OR pn.d LIKE N'%'+:tovar+N'%')ORDER BY l.log_DateTime DESC, ls.lsk_ID DESC

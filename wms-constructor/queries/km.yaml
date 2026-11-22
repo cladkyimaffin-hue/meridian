@@ -1,0 +1,144 @@
+section: km
+title: Маркировка КМ
+source_dashboard: wms-km
+variables: {}
+queries:
+- id: km.2-1
+  title: 'КМ: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько КМ в справочнике и архиве, сколько записей в журнале импорта и в очередях выгрузки.
+    Как считается: по таблицам a_Tab_KM, a_Tab_KM_Archive, ANT_KM_ImportPost1 и четырём очередям ANT_Export…KM…
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено.
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM dbo.a_Tab_KM) AS [КМ в справочнике], (SELECT COUNT(*)
+      FROM dbo.a_Tab_KM_Archive) AS [КМ в архиве], (SELECT COUNT(*)
+      FROM dbo.ANT_KM_ImportPost1) AS [Записей журнала импорта], (SELECT COUNT(*)
+      FROM (SELECT N'КМ по приходам' AS t, erk_ExportStatus AS st, erk_TryNumber AS tr, erk_DateInsert AS d
+        FROM dbo.ANT_ExportReceiptKM
+        UNION ALL SELECT N'КМ по заказам', eok_ExportStatus, eok_TryNumber, eok_DateInsert
+        FROM dbo.ANT_ExportOrderKM
+        UNION ALL SELECT N'Агрегация коробов', eka_ExportStatus, eka_TryNumber, eka_DateInsert
+        FROM dbo.ANT_ExportKMBoxAggregation
+        UNION ALL SELECT N'Разбиение коробов', eks_ExportStatus, eks_TryNumber, eks_DateInsert
+        FROM dbo.ANT_ExportKMBoxSplitting) q) AS [Записей в очередях выгрузки]
+- id: km.2-2
+  title: Состояние КМ
+  group: КМ в справочнике WMS
+  kind: таблица
+  description: |
+    Что показывает: Сколько КМ в каждом состоянии и уровне, и сколько из них с флагами приёмки, подбора, упаковки и выгрузки.
+    Как считается: a_Tab_KM по akm_StateKM и akm_Level; флаги = записи со значением 1.
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено. Смысл уровня и флага подбора не подтверждён.
+  sql: |
+    SELECT k.akm_StateKM AS [Код], CASE k.akm_StateKM WHEN 0 THEN N'Ожидается (загружен из 1С)' WHEN 1 THEN N'Принят' WHEN 2 THEN N'На стоке' WHEN 3 THEN N'Упакован / отгружен' ELSE N'Код не расшифрован' END AS [Состояние (по логике процедур)], k.akm_Level AS [Уровень (смысл не подтверждён)], COUNT(*) AS [КМ], SUM(CASE WHEN k.akm_receiptLed=1 THEN 1 ELSE 0 END) AS [Флаг приёмки], SUM(CASE WHEN k.akm_pickingLed=1 THEN 1 ELSE 0 END) AS [Флаг подбора], SUM(CASE WHEN k.akm_packingLed=1 THEN 1 ELSE 0 END) AS [Флаг упаковки], SUM(CASE WHEN k.akm_KMExportLED=1 THEN 1 ELSE 0 END) AS [Выгружен (флаг)]
+    FROM dbo.a_Tab_KM k
+    GROUP BY k.akm_StateKM, k.akm_Level
+    ORDER BY k.akm_StateKM, k.akm_Level
+- id: km.2-3
+  title: Загрузка КМ из файлов (статус в справочнике)
+  group: КМ в справочнике WMS
+  kind: таблица
+  description: |
+    Что показывает: Сколько КМ в справочнике по статусу их загрузки из файла.
+    Как считается: a_Tab_KM по akm_ImportStatusCode; в колонке с флагом импорта записи со значением 1.
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено. Смысл флага импорта не подтверждён.
+  sql: |
+    SELECT ISNULL(k.akm_ImportStatusCode,-1) AS [Код], CASE ISNULL(k.akm_ImportStatusCode,-1) WHEN 0 THEN N'Не обработан' WHEN 1 THEN N'Загружен успешно' WHEN 129 THEN N'Ошибка: исключение' WHEN 299 THEN N'Файл не обработан' WHEN -1 THEN N'Не указан' ELSE N'Код не расшифрован' END AS [Статус (по логике процедур)], COUNT(*) AS [КМ], SUM(CASE WHEN k.akm_importLed=1 THEN 1 ELSE 0 END) AS [Флаг импорта]
+    FROM dbo.a_Tab_KM k
+    GROUP BY k.akm_ImportStatusCode
+    ORDER BY COUNT(*) DESC
+- id: km.2-4
+  title: Очереди выгрузки КМ по типам и статусам
+  group: Выгрузка КМ в 1С
+  kind: таблица
+  description: |
+    Что показывает: Для каждого типа выгрузки и статуса: сколько записей, максимум попыток, первая и последняя дата.
+    Как считается: четыре очереди ANT_ExportReceiptKM, ANT_ExportOrderKM, ANT_ExportKMBoxAggregation, ANT_ExportKMBoxSplitting.
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено. У приходов и заказов повтор после ошибки возможен только ручным сбросом (по логике процедур, INFERRED); у агрегации и разбиения коробов исключение возвращает запись в очередь автоматически.
+  sql: |
+    SELECT x.t AS [Тип выгрузки], x.st AS [Код], CASE x.st WHEN 0 THEN N'Ждёт выгрузки' WHEN 1 THEN N'В обработке' WHEN 2 THEN N'Выгружено' WHEN 99 THEN N'Ошибка: откат (нет заголовка, строк или записи очереди)' WHEN 109 THEN N'Ошибка: исключение при выгрузке' ELSE N'Код не расшифрован' END AS [Статус (по логике процедур)], COUNT(*) AS [Записей], MAX(x.tr) AS [Макс. попыток], CONVERT(varchar(10), MIN(x.d), 120) AS [Первая], CONVERT(varchar(10), MAX(x.d), 120) AS [Последняя]
+    FROM (SELECT N'КМ по приходам' AS t, erk_ExportStatus AS st, erk_TryNumber AS tr, erk_DateInsert AS d
+      FROM dbo.ANT_ExportReceiptKM
+      UNION ALL SELECT N'КМ по заказам', eok_ExportStatus, eok_TryNumber, eok_DateInsert
+      FROM dbo.ANT_ExportOrderKM
+      UNION ALL SELECT N'Агрегация коробов', eka_ExportStatus, eka_TryNumber, eka_DateInsert
+      FROM dbo.ANT_ExportKMBoxAggregation
+      UNION ALL SELECT N'Разбиение коробов', eks_ExportStatus, eks_TryNumber, eks_DateInsert
+      FROM dbo.ANT_ExportKMBoxSplitting) x
+    GROUP BY x.t, x.st
+    ORDER BY x.t, x.st
+- id: km.2-5
+  title: 'Журнал импорта КМ: статус записи и файла'
+  group: Импорт КМ из 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи журнала импорта по статусу записи и статусу файла: сколько, первая и последняя дата.
+    Как считается: ANT_KM_ImportPost1; статус файла из LV_ImportStatus (связь akp_ilfImportStatusID = ist_ID, внешнего ключа нет: по совпадению значений, INFERRED).
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено. На 2026-11-19 записи со статусом 199 («КМ по файлу не найдены») в основном относились к файлам со статусом «Ошибка фазы 1».
+  sql: |
+    SELECT a.akp_Status AS [Код], CASE a.akp_Status WHEN 0 THEN N'Ждёт обработки' WHEN 1 THEN N'Загружено' WHEN 129 THEN N'Ошибка: исключение при обработке' WHEN 299 THEN N'Файл не обработан' WHEN 199 THEN N'КМ по файлу не найдены' ELSE N'Код не расшифрован' END AS [Статус записи (по логике процедур)], CASE ist.ist_MessageCode WHEN 'imp_sts_ReadSuccess' THEN N'Чтение успешно' WHEN 'imp_sts_FileCopyFailure' THEN N'Ошибка копирования файла' WHEN 'imp_sts_ReadFileFailure' THEN N'Ошибка чтения файла' WHEN 'imp_sts_ProcessSuccess' THEN N'Обработан успешно' WHEN 'imp_sts_Phase1Error' THEN N'Ошибка фазы 1' WHEN 'imp_sts_Phase2Error' THEN N'Ошибка фазы 2' WHEN 'imp_sts_UserCancel' THEN N'Отменён пользователем' WHEN 'imp_sts_PartialSuccess' THEN N'Частичный успех' WHEN 'imp_sts_NoRecordsPhase1' THEN N'Нет записей (фаза 1)' WHEN 'imp_sts_NoRecordsPhase2' THEN N'Нет записей (фаза 2)' WHEN 'imp_sts_SuccessWarnings' THEN N'Успех с предупреждениями' WHEN 'imp_sts_ProcessFailure' THEN N'Сбой обработки' ELSE ISNULL(ist.ist_MessageCode, N'—') END AS [Статус файла], COUNT(*) AS [Записей], CONVERT(varchar(10), MIN(a.akp_DateInsert), 120) AS [Первая], CONVERT(varchar(10), MAX(a.akp_DateInsert), 120) AS [Последняя]
+    FROM dbo.ANT_KM_ImportPost1 a
+    LEFT JOIN dbo.LV_ImportStatus ist ON ist.ist_ID=a.akp_ilfImportStatusID
+    GROUP BY a.akp_Status, ist.ist_MessageCode
+    ORDER BY COUNT(*) DESC
+- id: km.2-6
+  title: Журнал импорта по месяцам
+  group: Импорт КМ из 1С
+  kind: таблица
+  description: |
+    Что показывает: Сколько записей журнала импорта за каждый месяц и с какими итогами.
+    Как считается: ANT_KM_ImportPost1 по месяцу akp_DateInsert; коды: 1 загружено, 199 КМ по файлу не найдены, 129 и 299 ошибки.
+    Примечание: Подписи кодов взяты из текстов процедур WMS, а не из документации; какая версия процедур реально вызывается службой, не проверено.
+  sql: |
+    SELECT CONVERT(varchar(7), a.akp_DateInsert, 120) AS [Месяц], COUNT(*) AS [Записей], SUM(CASE WHEN a.akp_Status=1 THEN 1 ELSE 0 END) AS [Загружено (1)], SUM(CASE WHEN a.akp_Status=199 THEN 1 ELSE 0 END) AS [КМ не найдены (199)], SUM(CASE WHEN a.akp_Status IN (129,299) THEN 1 ELSE 0 END) AS [Ошибки (129, 299)], SUM(CASE WHEN ISNULL(a.akp_Status,-1) NOT IN (1,199,129,299) THEN 1 ELSE 0 END) AS [Прочие коды]
+    FROM dbo.ANT_KM_ImportPost1 a
+    GROUP BY CONVERT(varchar(7), a.akp_DateInsert, 120)
+    ORDER BY 1 DESC
+- id: km.2-7
+  title: 'Обменные таблицы КМ: объём'
+  group: Обменная база (MRDN_Exchange)
+  kind: таблица
+  description: |
+    Что показывает: Сколько записей в каждой обменной таблице КМ.
+    Как считается: количество строк в таблицах MRDN_Exchange.dbo.IFC_…KM…
+    Примечание: В обменных таблицах КМ нет дат, статусов и признаков ошибок: только идентификаторы, коды приходов, заказов, товаров и коробов.
+  sql: |
+    SELECT n AS [Таблица], d AS [Что это], c AS [Записей]
+    FROM (SELECT 1 AS o, N'IFC_ImportKMHeader' AS n, N'Входящие КМ из 1С по приходам: заголовки' AS d, COUNT(*) AS c
+      FROM MRDN_Exchange.dbo.IFC_ImportKMHeader
+      UNION ALL SELECT 2, N'IFC_ImportKMDetails', N'Входящие КМ из 1С по приходам: строки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ImportKMDetails
+      UNION ALL SELECT 3, N'IFC_ImportKM', N'Входящие КМ из 1С: плоская таблица', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ImportKM
+      UNION ALL SELECT 4, N'IFC_ExportReceiptKMHeader', N'Выгрузка КМ прихода: заголовки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptKMHeader
+      UNION ALL SELECT 5, N'IFC_ExportReceiptKMDetails', N'Выгрузка КМ прихода: строки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptKMDetails
+      UNION ALL SELECT 6, N'IFC_ExportOrderKMHeader', N'Выгрузка КМ заказов: заголовки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportOrderKMHeader
+      UNION ALL SELECT 7, N'IFC_ExportOrderKMDetails', N'Выгрузка КМ заказов: строки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportOrderKMDetails
+      UNION ALL SELECT 8, N'IFC_ExportKMAgg', N'Выгрузка агрегации коробов', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportKMAgg
+      UNION ALL SELECT 9, N'IFC_ExportKMBoxSplitHeader', N'Выгрузка разбиения коробов: заголовки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportKMBoxSplitHeader
+      UNION ALL SELECT 10, N'IFC_ExportKMBoxSplitDetails', N'Выгрузка разбиения коробов: строки', COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportKMBoxSplitDetails) t
+    ORDER BY o
+- id: km.2-8
+  title: Контроль счётчика КМ во входящих
+  group: Обменная база (MRDN_Exchange)
+  kind: таблица
+  description: |
+    Что показывает: Совпадает ли число КМ, указанное в заголовке входящего файла, с числом строк по нему.
+    Как считается: IFC_ImportKMHeader.KMCount против числа строк IFC_ImportKMDetails с тем же заголовком.
+    Примечание: Расхождений 0 означает, что счётчик в заголовках совпал со строками.
+  sql: |
+    SELECT COUNT(*) AS [Заголовков], SUM(h.KMCount) AS [Сумма KMCount], SUM(x.cnt) AS [Строк по заголовкам], SUM(CASE WHEN h.KMCount<>x.cnt THEN 1 ELSE 0 END) AS [Заголовков с расхождением]
+    FROM MRDN_Exchange.dbo.IFC_ImportKMHeader h
+    CROSS APPLY (SELECT COUNT(*) AS cnt
+      FROM MRDN_Exchange.dbo.IFC_ImportKMDetails d
+      WHERE d.HeadID=h.ID) x

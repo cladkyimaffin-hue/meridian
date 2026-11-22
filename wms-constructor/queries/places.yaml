@@ -1,0 +1,143 @@
+section: places
+title: Места хранения
+source_dashboard: wms-places
+variables:
+  zone:
+    label: Зона
+    type: multiselect
+    options_sql: |
+      SELECT DISTINCT z.zon_code AS __value, z.zon_code + N' — ' + z.zon_Description AS __text
+      FROM dbo.LV_Zone z
+      JOIN dbo.LV_LocZone lz ON lz.lzn_ZoneID=z.zon_ID
+      ORDER BY 1
+queries:
+- id: places.10-1
+  title: 'Все зоны: показатели'
+  group: Общий обзор склада
+  kind: сводка
+  description: |
+    Что показывает: Сколько всего ячеек и сколько из них занято, свободно, заблокировано.
+    Как считается: «Занято»: у ячейки есть строка остатка. «Свободно»: нет остатка и нет блокировки. «% занятости» считается от ячеек без блокировки.
+  sql: |
+    ;WITH occ AS (SELECT DISTINCT stk_LocationID
+      FROM dbo.LV_Stock) SELECT COUNT(*) AS [Всего ячеек], COUNT(o.stk_LocationID) AS [Занято], SUM(CASE WHEN l.loc_LockLED=0 AND o.stk_LocationID IS NULL THEN 1 ELSE 0 END) AS [Свободно], SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END) AS [Заблокировано], CAST(100.0*COUNT(o.stk_LocationID)/NULLIF(COUNT(*)-SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END),0) AS decimal(5,1)) AS [% занятости]
+    FROM dbo.LV_Location l
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN occ o ON o.stk_LocationID=l.loc_ID
+- id: places.10-2
+  title: Сводка по зонам
+  group: Общий обзор склада
+  kind: таблица
+  description: |
+    Что показывает: Те же показатели по каждой зоне (в том числе малые: приёмка, отгрузка, буфер, ОТК, брак).
+    Как считается: «Занято»: у ячейки есть строка остатка. «Свободно»: нет остатка и нет блокировки. «% занятости» считается от ячеек без блокировки.
+  sql: |
+    ;WITH occ AS (SELECT DISTINCT stk_LocationID
+      FROM dbo.LV_Stock) SELECT ISNULL(z.zon_code,'-') AS [Код зоны], ISNULL(z.zon_Description,N'Без зоны') AS [Зона], COUNT(*) AS [Всего ячеек], COUNT(o.stk_LocationID) AS [Занято], SUM(CASE WHEN l.loc_LockLED=0 AND o.stk_LocationID IS NULL THEN 1 ELSE 0 END) AS [Свободно], SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END) AS [Заблокировано], CAST(100.0*COUNT(o.stk_LocationID)/NULLIF(COUNT(*)-SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END),0) AS decimal(5,1)) AS [% занятости]
+    FROM dbo.LV_Location l
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN occ o ON o.stk_LocationID=l.loc_ID
+    GROUP BY z.zon_code, z.zon_Description
+    ORDER BY [Всего ячеек] DESC
+- id: places.10-3
+  title: Заблокированные ячейки по причинам
+  group: Общий обзор склада
+  kind: таблица
+  description: |
+    Что показывает: Сколько ячеек заблокировано и по какой причине, в разрезе зон.
+    Как считается: ячейки с признаком блокировки в LV_Location, причина из справочника LV_LocLockReason.
+  sql: |
+    SELECT ISNULL(z.zon_Description,N'Без зоны') AS [Зона], REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((r.llr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина блокировки], COUNT(*) AS [Ячеек]
+    FROM dbo.LV_Location l
+    LEFT JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    LEFT JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_LocLockReason r ON r.llr_ID=l.loc_LockReasonID
+    WHERE l.loc_LockLED=1
+    GROUP BY z.zon_Description, r.llr_Description
+    ORDER BY [Ячеек] DESC
+- id: places.10-4
+  title: Заполненность и тип отбора ячеек
+  group: Общий обзор склада
+  kind: таблица
+  description: |
+    Что показывает: Сколько ячеек пустых, с товаром, полных; и в каких из них ведётся отбор.
+    Как считается: статус заполненности и тип отбора из справочников, подписи из LV_Messages (русский).
+    Примечание: Тип отбора это свойство ячейки, а не признак текущей загрузки.
+  sql: |
+    SELECT mc.msg_Greek AS [Заполненность], mp.msg_Greek AS [Тип отбора], COUNT(*) AS [Ячеек]
+    FROM dbo.LV_Location l
+    LEFT JOIN dbo.LV_CapacityStatus c ON c.cst_ID=l.loc_CapacityStatusID
+    LEFT JOIN dbo.LV_LocPickingType p ON p.lpk_ID=l.loc_PickingTypeID
+    LEFT JOIN dbo.LV_Messages mc ON mc.msg_code=c.cst_MessageCode AND mc.msg_languageID=4
+    LEFT JOIN dbo.LV_Messages mp ON mp.msg_code=p.lpk_MessageCode AND mp.msg_languageID=4
+    GROUP BY mc.msg_Greek, mp.msg_Greek
+    ORDER BY [Ячеек] DESC
+- id: places.10-5
+  title: Резерв и непригодность в остатках
+  group: Общий обзор склада
+  kind: таблица
+  description: |
+    Что показывает: Остатки с причиной резерва (в том числе «Ошибка запаса») и с причиной непригодности (в том числе потеря товарного вида, ПТВ).
+    Как считается: строки остатков LV_Stock с заполненной причиной.
+    Примечание: ПТВ: потеря товарного вида.
+  sql: |
+    SELECT N'Резерв' AS [Вид], REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((r.srr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина], COUNT(*) AS [Строк остатка], COUNT(DISTINCT s.stk_LocationID) AS [Ячеек]
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_StockReserveReason r ON r.srr_ID=s.stk_ReserveReasonID
+    GROUP BY r.srr_Description
+    UNION ALL SELECT N'Непригодность', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((u.unr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения'),
+      COUNT(*),
+      COUNT(DISTINCT s.stk_LocationID)
+    FROM dbo.LV_Stock s
+    JOIN dbo.LV_UnsuitabilityReason u ON u.unr_ID=s.stk_UnsuitReasonID
+    GROUP BY u.unr_Description
+- id: places.10-6
+  title: 'Зона: показатели'
+  group: Зона
+  kind: сводка
+  description: |
+    Что показывает: Ячейки выбранной зоны: всего, занято, свободно, заблокировано.
+    Как считается: «Занято»: у ячейки есть строка остатка. «Свободно»: нет остатка и нет блокировки. «% занятости» считается от ячеек без блокировки.
+  sql: |
+    ;WITH occ AS (SELECT DISTINCT stk_LocationID
+      FROM dbo.LV_Stock) SELECT COUNT(*) AS [Всего ячеек], COUNT(o.stk_LocationID) AS [Занято], SUM(CASE WHEN l.loc_LockLED=0 AND o.stk_LocationID IS NULL THEN 1 ELSE 0 END) AS [Свободно], SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END) AS [Заблокировано], CAST(100.0*COUNT(o.stk_LocationID)/NULLIF(COUNT(*)-SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END),0) AS decimal(5,1)) AS [% занятости]
+    FROM dbo.LV_Location l
+    JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN occ o ON o.stk_LocationID=l.loc_ID
+    WHERE z.zon_code IN (:zone)
+- id: places.10-7
+  title: 'Зона: ряды (стеллажи)'
+  group: Зона
+  kind: таблица
+  description: |
+    Что показывает: Занятость по рядам зоны. Ряд это первая цифровая часть кода ячейки (например, A01-…).
+    Как считается: «Занято»: у ячейки есть строка остатка. «Свободно»: нет остатка и нет блокировки. «% занятости» считается от ячеек без блокировки.
+  sql: |
+    ;WITH occ AS (SELECT DISTINCT stk_LocationID
+      FROM dbo.LV_Stock) SELECT l.loc_SectorCode AS [Ряд], COUNT(*) AS [Всего ячеек], COUNT(o.stk_LocationID) AS [Занято], SUM(CASE WHEN l.loc_LockLED=0 AND o.stk_LocationID IS NULL THEN 1 ELSE 0 END) AS [Свободно], SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END) AS [Заблокировано], CAST(100.0*COUNT(o.stk_LocationID)/NULLIF(COUNT(*)-SUM(CASE WHEN l.loc_LockLED=1 THEN 1 ELSE 0 END),0) AS decimal(5,1)) AS [% занятости]
+    FROM dbo.LV_Location l
+    JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN occ o ON o.stk_LocationID=l.loc_ID
+    WHERE z.zon_code IN (:zone)
+    GROUP BY l.loc_SectorCode
+    ORDER BY l.loc_SectorCode
+- id: places.10-8
+  title: 'Зона: блокировки по причинам'
+  group: Зона
+  kind: таблица
+  description: |
+    Что показывает: Заблокированные ячейки выбранной зоны и причины.
+    Как считается: LV_Location, LV_LocLockReason.
+  sql: |
+    SELECT REPLACE(REPLACE(REPLACE(REPLACE(REPLACE((r.llr_Description COLLATE Cyrillic_General_CS_AS), N'ЗанЯта', N'Занята'), N'ИнвентаризациЯ', N'Инвентаризация'), N'ТехнологическаЯ', N'Технологическая'), N'ХозЯйственные', N'Хозяйственные'), N'хранениЯ', N'хранения') AS [Причина блокировки], l.loc_SectorCode AS [Ряд], COUNT(*) AS [Ячеек]
+    FROM dbo.LV_Location l
+    JOIN dbo.LV_LocZone lz ON lz.lzn_LocationID=l.loc_ID
+    JOIN dbo.LV_Zone z ON z.zon_ID=lz.lzn_ZoneID
+    LEFT JOIN dbo.LV_LocLockReason r ON r.llr_ID=l.loc_LockReasonID
+    WHERE l.loc_LockLED=1 AND z.zon_code IN (:zone)
+    GROUP BY r.llr_Description, l.loc_SectorCode
+    ORDER BY [Ячеек] DESC, [Ряд]

@@ -1,0 +1,122 @@
+section: tasks
+title: Задачи склада
+source_dashboard: wms-tasks
+variables:
+  date_from:
+    label: С даты
+    type: date
+    default: -365d
+  date_to:
+    label: По дату
+    type: date
+queries:
+- id: tasks.9-1
+  title: 'Задачи: сводка'
+  group: Обзор задач
+  kind: сводка
+  description: |
+    Что показывает: Сколько задач всего и в каждом статусе; как давно создана самая старая незавершённая.
+    Как считается: статусы из справочника LV_ProgressStatus; возраст считается от даты создания до текущего времени сервера.
+    Примечание: Показываются все задачи за всё время.
+  sql: |
+    SELECT COUNT(*) AS [Всего задач], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Done' THEN 1 ELSE 0 END) AS [Выполнено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Pending' THEN 1 ELSE 0 END) AS [В ожидании], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Executing' THEN 1 ELSE 0 END) AS [В работе], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Suspended' THEN 1 ELSE 0 END) AS [Приостановлено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Cancelled' THEN 1 ELSE 0 END) AS [Отменено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Incomplete' THEN 1 ELSE 0 END) AS [Неполные], ISNULL(MAX(CASE WHEN ps.pst_MessageCode NOT IN (N'Status_Done', N'Status_Cancelled') THEN DATEDIFF(day, k.tsk_CreateTime, GETDATE()) END),0) AS [Самая старая незавершённая, дней]
+    FROM dbo.LV_Task k
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=k.tsk_StatusID
+- id: tasks.9-2
+  title: Задачи по типам и статусам
+  group: Обзор задач
+  kind: таблица
+  description: |
+    Что показывает: Для каждого типа задачи (размещение, подбор, перемещение) сколько в каждом статусе.
+    Как считается: LV_Task, типы из LV_TransactionType, подписи из LV_Messages (русский).
+  sql: |
+    SELECT ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип задачи], COUNT(*) AS [Всего], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Done' THEN 1 ELSE 0 END) AS [Выполнено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Pending' THEN 1 ELSE 0 END) AS [В ожидании], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Executing' THEN 1 ELSE 0 END) AS [В работе], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Suspended' THEN 1 ELSE 0 END) AS [Приостановлено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Cancelled' THEN 1 ELSE 0 END) AS [Отменено], SUM(CASE WHEN ps.pst_MessageCode=N'Status_Incomplete' THEN 1 ELSE 0 END) AS [Неполные]
+    FROM dbo.LV_Task k
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=k.tsk_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages mt ON mt.msg_code=t.trt_MessageCode AND mt.msg_languageID=4
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=k.tsk_StatusID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    GROUP BY ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)'))
+    ORDER BY COUNT(*) DESC
+- id: tasks.9-3
+  title: Время выполнения задач
+  group: Обзор задач
+  kind: таблица
+  description: |
+    Что показывает: Сколько времени проходит от создания задачи до её выполнения: среднее и максимум по типам.
+    Как считается: для выполненных задач: разница между tsk_ActualTime и tsk_CreateTime; задачи, у которых «выполнено раньше создания», не входят в среднее и считаются отдельно.
+    Примечание: Среднее в часах, максимум в сутках. В тестовой базе значения большие из-за пауз между тестами.
+  sql: |
+    SELECT ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип задачи], SUM(CASE WHEN k.tsk_ActualTime>=k.tsk_CreateTime THEN 1 ELSE 0 END) AS [Выполнено (корректное время)], CAST(AVG(CASE WHEN k.tsk_ActualTime>=k.tsk_CreateTime THEN DATEDIFF(minute,k.tsk_CreateTime,k.tsk_ActualTime)/60.0 END) AS decimal(12,1)) AS [Среднее, часов], CAST(MAX(CASE WHEN k.tsk_ActualTime>=k.tsk_CreateTime THEN DATEDIFF(minute,k.tsk_CreateTime,k.tsk_ActualTime)/1440.0 END) AS decimal(12,1)) AS [Максимум, суток], SUM(CASE WHEN k.tsk_ActualTime<k.tsk_CreateTime THEN 1 ELSE 0 END) AS [Время выполнено раньше создания]
+    FROM dbo.LV_Task k
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=k.tsk_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages mt ON mt.msg_code=t.trt_MessageCode AND mt.msg_languageID=4
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=k.tsk_StatusID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    WHERE k.tsk_ActualTime IS NOT NULL
+    GROUP BY ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)'))
+    ORDER BY COUNT(*) DESC
+- id: tasks.9-4
+  title: Незавершённые и зависшие задачи
+  group: Незавершённые задачи
+  kind: таблица
+  description: |
+    Что показывает: Все задачи не в статусах «Выполнена» и «Отменена»: что за задача, как давно создана, откуда и куда, количество.
+    Как считается: LV_Task со статусом, отличным от выполненной и отменённой; коды ячеек из самой задачи.
+    Примечание: Количество указано в единицах задачи, разные товары не суммируются.
+  sql: |
+    SELECT k.tsk_ID AS [ID задачи], ISNULL(k.tsk_Code, N'—') AS [Код задачи], ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип задачи], ISNULL(ms.msg_Greek, ISNULL(ps.pst_MessageCode, N'(статус не указан)')) AS [Статус], k.tsk_CreateTime AS [Создана], DATEDIFF(day, k.tsk_CreateTime, GETDATE()) AS [Дней назад], ISNULL(k.tsk_FromLocationCode, N'—') AS [Откуда], ISNULL(k.tsk_ToLocationCode, N'—') AS [Куда], k.tsk_Quantity AS [Количество]
+    FROM dbo.LV_Task k
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=k.tsk_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages mt ON mt.msg_code=t.trt_MessageCode AND mt.msg_languageID=4
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=k.tsk_StatusID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    WHERE ps.pst_MessageCode NOT IN (N'Status_Done', N'Status_Cancelled')
+    ORDER BY k.tsk_CreateTime
+- id: tasks.9-5
+  title: Создано и выполнено задач по дням
+  group: Незавершённые задачи
+  kind: timeseries
+  description: |
+    Что показывает: Сколько задач создавалось и сколько выполнялось по дням за выбранный период.
+    Как считается: по дате создания (tsk_CreateTime) и дате выполнения (tsk_ActualTime).
+    Примечание: Дни без задач пустые.
+  sql: |
+    SELECT CAST(tsk_CreateTime AS date) AS [Дата],
+      COUNT(*) AS [Создано]
+    FROM dbo.LV_Task
+    WHERE tsk_CreateTime >= :date_from AND tsk_CreateTime < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(tsk_CreateTime AS date)
+    ORDER BY 1
+- id: tasks.9-6
+  title: Создано и выполнено задач по дням
+  group: Незавершённые задачи
+  kind: timeseries
+  description: |
+    Что показывает: Сколько задач создавалось и сколько выполнялось по дням за выбранный период.
+    Как считается: по дате создания (tsk_CreateTime) и дате выполнения (tsk_ActualTime).
+    Примечание: Дни без задач пустые.
+  sql: |
+    SELECT CAST(tsk_ActualTime AS date) AS [Дата],
+      COUNT(*) AS [Выполнено]
+    FROM dbo.LV_Task
+    WHERE tsk_ActualTime IS NOT NULL AND tsk_ActualTime >= :date_from AND tsk_ActualTime < DATEADD(day, 1, :date_to)
+    GROUP BY CAST(tsk_ActualTime AS date)
+    ORDER BY 1
+- id: tasks.9-7
+  title: Последние выполненные задачи
+  group: Незавершённые задачи
+  kind: таблица
+  description: |
+    Что показывает: 20 последних выполненных задач: когда, какого типа, откуда и куда, сколько времени заняла.
+    Как считается: LV_Task со статусом «Выполнена».
+    Примечание: Время от создания до выполнения, в часах.
+  sql: |
+    SELECT TOP 20 k.tsk_ActualTime AS [Выполнена], ISNULL(mt.msg_Greek, ISNULL(t.trt_MessageCode, N'(тип не указан)')) AS [Тип задачи], ISNULL(k.tsk_FromLocationCode, N'—') AS [Откуда], ISNULL(k.tsk_ToLocationCode, N'—') AS [Куда], k.tsk_Quantity AS [Количество], CAST(DATEDIFF(minute,k.tsk_CreateTime,k.tsk_ActualTime)/60.0 AS decimal(12,1)) AS [От создания, часов]
+    FROM dbo.LV_Task k
+    LEFT JOIN dbo.LV_TransactionType t ON t.trt_ID=k.tsk_TransactionTypeID
+    LEFT JOIN dbo.LV_Messages mt ON mt.msg_code=t.trt_MessageCode AND mt.msg_languageID=4
+    LEFT JOIN dbo.LV_ProgressStatus ps ON ps.pst_ID=k.tsk_StatusID
+    LEFT JOIN dbo.LV_Messages ms ON ms.msg_code=ps.pst_MessageCode AND ms.msg_languageID=4
+    WHERE ps.pst_MessageCode=N'Status_Done' AND k.tsk_ActualTime IS NOT NULL
+    ORDER BY k.tsk_ActualTime DESC

@@ -1,0 +1,264 @@
+section: reconcile-receipts
+title: Сверка приходов с 1С
+source_dashboard: wms-reconcile-receipts
+variables: {}
+queries:
+- id: reconcile-receipts.3-1
+  title: 'Сверка: сводка'
+  group: Обзор
+  kind: сводка
+  description: |
+    Что показывает: Сколько приходов в WMS, сколько различных кодов пришло от 1С, сколько повторных загрузок и сколько приходов выгружено в обмен.
+    Как считается: WMS: LV_Receipt; 1С: IFC_ImportReceiptHeader; обмен: IFC_ExportReceiptHeader. Повторные загрузки = заголовки сверх первого для того же кода.
+    Примечание: Приходы сопоставляются по коду документа: ReceiptCode в обмене и rct_Code в WMS (связь по совпадению значений, внешнего ключа нет).
+  sql: |
+    SELECT (SELECT COUNT(*)
+      FROM dbo.LV_Receipt) AS [Приходов в WMS], (SELECT COUNT(DISTINCT ReceiptCode)
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader) AS [Кодов приходов из 1С], (SELECT COUNT(*) - COUNT(DISTINCT ReceiptCode)
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader) AS [Повторных загрузок], (SELECT COUNT(*)
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader) AS [Приходов выгружено в обмен]
+- id: reconcile-receipts.3-2
+  title: Итоги сверки приходов
+  group: Итоги сверки
+  kind: таблица
+  description: |
+    Что показывает: Девять проверок: сколько расхождений найдено и из какого числа проверенных объектов.
+    Как считается: сопоставление WMS, входящих и выгружаемых приходов по коду документа; количества сравниваются суммой по приходу.
+    Примечание: Приходы сопоставляются по коду документа: ReceiptCode в обмене и rct_Code в WMS (связь по совпадению значений, внешнего ключа нет). Количества суммируются по всем строкам прихода, без разбивки по товару и единице измерения. Ожидаемое количество сравнивается только для кодов, загруженных один раз (при повторных загрузках неясно, какая из них верная).
+  sql: |
+    WITH ih AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpectedDate
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpectedDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT rct_ID AS id, rct_Code COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Receipt
+      WHERE rct_Code IS NOT NULL),
+      lvq AS (SELECT lv.code, SUM(i.rci_ExpQuantity) AS qe, SUM(i.rci_ActQuantity) AS qa
+      FROM lv
+        LEFT JOIN dbo.LV_ReceiptItem i ON i.rci_ReceiptID=lv.id
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.ExpQuantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportReceiptDetails d ON d.ReceiptID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      exh AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      exq AS (SELECT exh.code, SUM(d.Quantity) AS q
+      FROM exh
+      JOIN MRDN_Exchange.dbo.IFC_ExportReceiptDetails d ON d.ReceiptID=exh.ID
+      GROUP BY exh.code) SELECT u.p AS [Проверка], u.v AS [Найдено], u.t AS [Из скольких], CAST(100.0*u.v/NULLIF(u.t,0) AS decimal(5,1)) AS [Доля, %]
+    FROM (SELECT 1 AS o, N'Приходов WMS без входящего заголовка из 1С' AS p, (SELECT COUNT(*)
+        FROM lv
+        WHERE NOT EXISTS (SELECT 1
+          FROM ic
+          WHERE ic.code=lv.code)) AS v, (SELECT COUNT(*)
+        FROM lv) AS t
+      UNION ALL SELECT 2, N'Кодов из 1С, которых нет в WMS', (SELECT COUNT(*)
+        FROM ic
+        WHERE NOT EXISTS (SELECT 1
+          FROM lv
+          WHERE lv.code=ic.code)), (SELECT COUNT(*)
+        FROM ic)
+      UNION ALL SELECT 3, N'Кодов из 1С, загруженных больше одного раза', (SELECT COUNT(*)
+        FROM ic
+        WHERE times>1), (SELECT COUNT(*)
+        FROM ic)
+      UNION ALL SELECT 4, N'Заголовков, где LinesCount не равен числу строк', (SELECT COUNT(*)
+        FROM ih
+        WHERE ih.LinesCount <> (SELECT COUNT(*)
+          FROM MRDN_Exchange.dbo.IFC_ImportReceiptDetails d
+          WHERE d.ReceiptID=ih.ID)), (SELECT COUNT(*)
+        FROM ih)
+      UNION ALL SELECT 5, N'Ожидаемое количество отличается от WMS (коды, загруженные один раз)', (SELECT COUNT(*)
+        FROM impq
+        JOIN lvq ON lvq.code=impq.code
+        WHERE ISNULL(lvq.qe,0)<>impq.q), (SELECT COUNT(*)
+        FROM impq
+        JOIN lvq ON lvq.code=impq.code)
+      UNION ALL SELECT 6, N'Принятое количество в обмене отличается от WMS', (SELECT COUNT(*)
+        FROM exq
+        JOIN lvq ON lvq.code=exq.code
+        WHERE ISNULL(lvq.qa,0)<>exq.q), (SELECT COUNT(*)
+        FROM exq
+        JOIN lvq ON lvq.code=exq.code)
+      UNION ALL SELECT 7, N'Приходов WMS без записи в очереди выгрузки', (SELECT COUNT(*)
+        FROM dbo.LV_Receipt r
+        WHERE NOT EXISTS (SELECT 1
+          FROM dbo.ANT_ExportReceipt e
+          WHERE e.ert_ReceiptID=r.rct_ID)), (SELECT COUNT(*)
+        FROM dbo.LV_Receipt)
+      UNION ALL SELECT 8, N'Записей очереди выгрузки с кодом 99 или 199 (в обмен не попали)', (SELECT COUNT(*)
+        FROM dbo.ANT_ExportReceipt
+        WHERE ert_ExportStatus IN (99,199)), (SELECT COUNT(*)
+        FROM dbo.ANT_ExportReceipt)
+      UNION ALL SELECT 9, N'Выгружено (код 2), но заголовка в обмене нет', (SELECT COUNT(*)
+        FROM dbo.ANT_ExportReceipt e
+        JOIN lv ON lv.id=e.ert_ReceiptID
+        WHERE e.ert_ExportStatus=2 AND NOT EXISTS (SELECT 1
+          FROM exh
+          WHERE exh.code=lv.code)), (SELECT COUNT(*)
+        FROM dbo.ANT_ExportReceipt
+        WHERE ert_ExportStatus=2)) u
+    ORDER BY u.o
+- id: reconcile-receipts.3-3
+  title: Повторно загруженные приходы
+  group: Загрузка из 1С
+  kind: таблица
+  description: |
+    Что показывает: Коды приходов, которые 1С передавала больше одного раза: сколько раз, есть ли код в WMS, последняя ожидаемая дата.
+    Как считается: IFC_ImportReceiptHeader по ReceiptCode; TOP 50 по числу загрузок.
+    Примечание: Приходы сопоставляются по коду документа: ReceiptCode в обмене и rct_Code в WMS (связь по совпадению значений, внешнего ключа нет).
+  sql: |
+    WITH ih AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpectedDate
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpectedDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT rct_ID AS id, rct_Code COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Receipt
+      WHERE rct_Code IS NOT NULL),
+      lvq AS (SELECT lv.code, SUM(i.rci_ExpQuantity) AS qe, SUM(i.rci_ActQuantity) AS qa
+      FROM lv
+        LEFT JOIN dbo.LV_ReceiptItem i ON i.rci_ReceiptID=lv.id
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.ExpQuantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportReceiptDetails d ON d.ReceiptID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      exh AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      exq AS (SELECT exh.code, SUM(d.Quantity) AS q
+      FROM exh
+      JOIN MRDN_Exchange.dbo.IFC_ExportReceiptDetails d ON d.ReceiptID=exh.ID
+      GROUP BY exh.code) SELECT TOP 50 ic.code AS [Код прихода], ic.times AS [Раз загружен], CASE WHEN EXISTS (SELECT 1
+      FROM lv
+      WHERE lv.code=ic.code) THEN N'да' ELSE N'нет' END AS [Есть в WMS], ISNULL(CONVERT(varchar(10), ic.exp_date, 120), N'—') AS [Ожидаемая дата (последняя)]
+    FROM ic
+    WHERE ic.times>1
+    ORDER BY ic.times DESC, ic.code
+- id: reconcile-receipts.3-4
+  title: Коды из 1С, которых нет в WMS
+  group: Загрузка из 1С
+  kind: таблица
+  description: |
+    Что показывает: Коды приходов, пришедшие от 1С, но не найденные в WMS: сколько раз загружены и ожидаемая дата.
+    Как считается: IFC_ImportReceiptHeader по ReceiptCode против LV_Receipt.rct_Code; до 100 строк.
+    Примечание: Приходы сопоставляются по коду документа: ReceiptCode в обмене и rct_Code в WMS (связь по совпадению значений, внешнего ключа нет). Причина отсутствия по данным неизвестна.
+  sql: |
+    WITH ih AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpectedDate
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpectedDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT rct_ID AS id, rct_Code COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Receipt
+      WHERE rct_Code IS NOT NULL),
+      lvq AS (SELECT lv.code, SUM(i.rci_ExpQuantity) AS qe, SUM(i.rci_ActQuantity) AS qa
+      FROM lv
+        LEFT JOIN dbo.LV_ReceiptItem i ON i.rci_ReceiptID=lv.id
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.ExpQuantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportReceiptDetails d ON d.ReceiptID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      exh AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      exq AS (SELECT exh.code, SUM(d.Quantity) AS q
+      FROM exh
+      JOIN MRDN_Exchange.dbo.IFC_ExportReceiptDetails d ON d.ReceiptID=exh.ID
+      GROUP BY exh.code) SELECT TOP 100 ic.code AS [Код прихода], ic.times AS [Раз загружен], ISNULL(CONVERT(varchar(10), ic.exp_date, 120), N'—') AS [Ожидаемая дата (последняя)]
+    FROM ic
+    WHERE NOT EXISTS (SELECT 1
+      FROM lv
+      WHERE lv.code=ic.code)
+    ORDER BY ic.exp_date DESC, ic.code
+- id: reconcile-receipts.3-5
+  title: Приходы с расхождением принятого количества
+  group: Выгрузка в 1С
+  kind: таблица
+  description: |
+    Что показывает: Приходы, у которых принятое количество, выгруженное в обмен, отличается от принятого в WMS.
+    Как считается: сумма IFC_ExportReceiptDetails.Quantity против суммы LV_ReceiptItem.rci_ActQuantity по коду прихода.
+    Примечание: Количества суммируются по всем строкам прихода, без разбивки по товару и единице измерения. Приходы сопоставляются по коду документа: ReceiptCode в обмене и rct_Code в WMS (связь по совпадению значений, внешнего ключа нет).
+  sql: |
+    WITH ih AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code, LinesCount, ExpectedDate
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      ic AS (SELECT code, COUNT(*) AS times, MAX(ExpectedDate) AS exp_date
+      FROM ih
+      GROUP BY code),
+      lv AS (SELECT rct_ID AS id, rct_Code COLLATE DATABASE_DEFAULT AS code
+      FROM dbo.LV_Receipt
+      WHERE rct_Code IS NOT NULL),
+      lvq AS (SELECT lv.code, SUM(i.rci_ExpQuantity) AS qe, SUM(i.rci_ActQuantity) AS qa
+      FROM lv
+        LEFT JOIN dbo.LV_ReceiptItem i ON i.rci_ReceiptID=lv.id
+      GROUP BY lv.code),
+      impq AS (SELECT ih.code, SUM(d.ExpQuantity) AS q
+      FROM ih
+      JOIN MRDN_Exchange.dbo.IFC_ImportReceiptDetails d ON d.ReceiptID=ih.ID
+      WHERE ih.code IN (SELECT code
+        FROM ic
+        WHERE times=1)
+      GROUP BY ih.code),
+      exh AS (SELECT ID, ReceiptCode COLLATE DATABASE_DEFAULT AS code
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader
+      WHERE ReceiptCode IS NOT NULL),
+      exq AS (SELECT exh.code, SUM(d.Quantity) AS q
+      FROM exh
+      JOIN MRDN_Exchange.dbo.IFC_ExportReceiptDetails d ON d.ReceiptID=exh.ID
+      GROUP BY exh.code) SELECT exq.code AS [Код прихода], lvq.qa AS [Принято в WMS], exq.q AS [Выгружено в обмен], exq.q - ISNULL(lvq.qa,0) AS [Разница]
+    FROM exq
+    JOIN lvq ON lvq.code=exq.code
+    WHERE ISNULL(lvq.qa,0)<>exq.q
+    ORDER BY ABS(exq.q - ISNULL(lvq.qa,0)) DESC, exq.code
+- id: reconcile-receipts.3-6
+  title: Очередь выгрузки прихода по статусам
+  group: Выгрузка в 1С
+  kind: таблица
+  description: |
+    Что показывает: Записи очереди выгрузки приходов по статусу: сколько, максимум попыток, есть ли запись очереди обмена, период.
+    Как считается: ANT_ExportReceipt по ert_ExportStatus; запись очереди = ert_eqeID заполнен.
+    Примечание: Смысл кодов 99 и 199 для приходов не подтверждён (подпись для 99 перенесена из процедур КМ).
+  sql: |
+    SELECT e.ert_ExportStatus AS [Код], CASE e.ert_ExportStatus WHEN 2 THEN N'Выгружено' WHEN 99 THEN N'Не выгружено: откат (по логике процедур КМ; для приходов не подтверждено)' ELSE N'Код не расшифрован' END AS [Статус], COUNT(*) AS [Записей], MAX(e.ert_TryNumber) AS [Макс. попыток], SUM(CASE WHEN e.ert_eqeID IS NOT NULL THEN 1 ELSE 0 END) AS [С записью очереди обмена], CONVERT(varchar(10), MIN(e.ert_DateInsert), 120) AS [Первая], CONVERT(varchar(10), MAX(e.ert_DateInsert), 120) AS [Последняя]
+    FROM dbo.ANT_ExportReceipt e
+    GROUP BY e.ert_ExportStatus
+    ORDER BY COUNT(*) DESC
+- id: reconcile-receipts.3-7
+  title: Коды приходов с нелатинскими символами
+  group: Качество кодов
+  kind: таблица
+  description: |
+    Что показывает: Коды приходов, в которых есть символ вне латиницы и цифр (например, кириллическая «М» вместо латинской M): где найден, номер позиции и код символа.
+    Как считается: проверка каждого символа кода (UNICODE больше 127) в IFC_ImportReceiptHeader, IFC_ExportReceiptHeader и LV_Receipt.
+    Примечание: Такой код не совпадёт по тексту с кодом, набранным латиницей, и сверка по коду его не свяжет. Код символа 1052 = кириллическая «М».
+  sql: |
+    WITH n AS (SELECT TOP 40 ROW_NUMBER() OVER (ORDER BY (SELECT 1)) AS i
+      FROM sys.all_objects),
+      c AS (SELECT N'Входящие из 1С' AS src, ReceiptCode AS code
+      FROM MRDN_Exchange.dbo.IFC_ImportReceiptHeader
+      UNION ALL SELECT N'Выгрузка в обмен', ReceiptCode
+      FROM MRDN_Exchange.dbo.IFC_ExportReceiptHeader
+      UNION ALL SELECT N'WMS', rct_Code
+      FROM dbo.LV_Receipt) SELECT c.src AS [Где найден], c.code AS [Код прихода], MIN(n.i) AS [Позиция символа], MIN(UNICODE(SUBSTRING(c.code, n.i, 1))) AS [Код символа]
+    FROM c
+    JOIN n ON n.i<=LEN(c.code) AND UNICODE(SUBSTRING(c.code, n.i, 1))>127
+    GROUP BY c.src, c.code
+    ORDER BY c.src, c.code

@@ -1,6 +1,6 @@
 ---
 schema_version: "1.0"
-date_modified: 2026-11-16
+date_modified: 2026-11-21
 status: "active"
 maintainer: "cladkyimaffin-hue"
 file_type: "navigation_index"
@@ -27,6 +27,7 @@ source_of_truth: "00_Meta/registry.csv"
 | [Дашборды wmsAPP, HostWMS, Wi-Fi и wmsWiFi: состав и пороги](<04_Dashboards/Дашборды wmsAPP HostWMS Wi-Fi и wmsWiFi состав и пороги.md>) | reference | in_progress | Четыре дашборда из генераторов: разделы, пороги (предложены, не утверждены), правки по замечаниям, ошибки VHDX и ISO, ограничения |
 | [Опрос точек доступа Qtech: служба wifi-ap-exporter на wmsWiFi](<02_Exporters/Опрос точек доступа Qtech служба wifi-ap-exporter на wmsWiFi.md>) | setup | completed | Опрос девяти точек по SSH раз в минуту (только чтение), ключ, служба, правило `ufw`, цели Prometheus, откат, риски |
 | [Расхождение часов на точках доступа Qtech и NTP-контейнер wmsWiFi](<06_Troubleshooting/Расхождение часов на точках доступа Qtech и NTP-контейнер wmsWiFi.md>) | troubleshooting | completed | Часы точек спешили на 16 минут и отставали на 47 суток: причина в NTP-контейнере Qtech и точке `.159`, исправление, проверка, откат, что не решено |
+| [Источник данных wmsDB LV_MERIDIAN в Grafana и папка Отчёты WMS](<03_MSSQL/Источник данных wmsDB LV_MERIDIAN в Grafana и папка Отчёты WMS.md>) | setup | completed | Читающий доступ Grafana к базам LV_MERIDIAN (1238 таблиц) и MRDN_Exchange (30 таблиц IFC_*), права, источник через provisioning, папка «Отчёты WMS», откат, риски |
 
 ## Служебные файлы домена
 
@@ -38,7 +39,7 @@ source_of_truth: "00_Meta/registry.csv"
 
 - **Стек и архитектура, сервер паролей, страница-витрина:** `01_Architecture/`.
 - **Экспортеры и цели:** `02_Exporters/`.
-- **MS SQL Server:** `03_MSSQL/` (папка появится с первым документом).
+- **MS SQL Server (источник данных, таблицы LV_MERIDIAN):** `03_MSSQL/`.
 - **Дашборды и таблица параметров:** `04_Dashboards/`.
 - **Алерты:** `05_Alerting/` (папка появится с первым документом).
 - **Инциденты:** `06_Troubleshooting/`.
@@ -50,3 +51,5 @@ source_of_truth: "00_Meta/registry.csv"
 
 - Установка стека (источник первых двух документов): `meridian-secrets/raw-chats/Monitoring/Подключение серверов к cloude Prometheus и Grafana.md` (перенесён 2026-11-10); более поздний экспорт того же чата, INFERRED: `Claude-Развертывание Prometheus и Grafana на wmsDB-TEST-20261112-2226.md`.
 - Установка exporter на `wmsDB`, дашборд «wmsDB: Сервер», начало установки сервера паролей (источник трёх последних документов): `meridian-secrets/raw-chats/Monitoring/Claude-Мониторинг wmsDB и разбор таблиц MS SQL-20261112-2223.md` (экспорт от 2026-11-12). Работы 2026-11-13 (завершение установки сервера паролей, резервная копия) в этот экспорт не входят: дословная выгрузка ожидается от администратора.
+- Работы 2026-11-15 и 2026-11-16 (страница-витрина, exporter на wmsAPP и HostWMS, Wi-Fi, NTP): `meridian-secrets/raw-chats/Monitoring/Claude--Макет страницы-витрины аналитики-20261116-2202.md` и `Claude--Сервер паролей и веб-страница дашбордов-20261116-2202.md`. Копии этих файлов также лежат в публичной папке `Chats/` (решение администратора 2026-11-21: оставить как есть); место токенов публичных ссылок — S-009 в приватном реестре.
+- Работы 2026-11-17 и 2026-11-18 (источник данных LV_MERIDIAN, папка «Отчёты WMS»): `Chats/Claude--Поиск таблиц товаров в LV_MERIDIAN-20261121-1132.md` (публичная папка; поиск по шаблонам значений секретов не нашёл) и `Chats/Claude--Проверка актуальности документа по загрузкам-20261121-1132.md` (2026-11-19 — 2026-11-20).

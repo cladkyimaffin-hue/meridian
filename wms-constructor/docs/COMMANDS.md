@@ -19,6 +19,9 @@
 | [R] | `docker logs --tail 50 metabase` | журнал Metabase |
 | [W] | на сервере-источнике `docker save <образ> \| gzip \| ssh -i <врем. ключ> user@<приёмник> "cat > файл"`, на приёмнике `docker load -i файл` | перенос образа при медленном Docker Hub; сверить sha256 архива и ID образа; временный ключ удалить с обоих серверов |
 | [D] | `cd metabase && docker compose down -v` | остановить Metabase и УДАЛИТЬ его данные (том PostgreSQL: все сохранённые отчёты) |
+| [R] | `METABASE_URL=http://<адрес>:3001 python3 metabase/hide_unused_tables.py` | пробный прогон: сколько таблиц Metabase останется видимыми (ключ API из файла секретов) |
+| [W] | `... hide_unused_tables.py --apply` / `--unhide-all --apply` | скрыть неиспользуемые таблицы / вернуть видимость всем (обратимо) |
+| [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/mark_sensitive_columns.py` (`--revert` снимает) | пометить чувствительные столбцы «не показывать» |
 
 Секреты: `/opt/wms-constructor-secrets/app.env` (права 600, вне репозитория). Создание учётной записи БД `constructor_ro`
 выполнял администратор БД: `CREATE LOGIN` + `CREATE USER` + роли `db_datareader` и `db_denydatawriter` в `LV_MERIDIAN` и `MRDN_Exchange`.

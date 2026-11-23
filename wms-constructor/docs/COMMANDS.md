@@ -15,6 +15,10 @@
 | [W] | `git add <файлы> && git commit -m "..." && git push origin main` | фиксация и отправка в GitHub (репозиторий публичный: перед push проверять отсутствие секретов) |
 | [W] | `python tools/md_to_yaml.py ...` (см. `docs/CONVERTER.md`) | перезаписывает `queries/*.yaml` |
 | [D] | `docker compose down` | остановить и удалить контейнер (образ и данные остаются) |
+| [W] | `cd metabase && docker compose up -d` | запуск Metabase и PostgreSQL (секреты: `/opt/wms-constructor-secrets/metabase.env`, вне репозитория; порт 3001, адрес в `metabase/.env`) |
+| [R] | `docker logs --tail 50 metabase` | журнал Metabase |
+| [W] | на сервере-источнике `docker save <образ> \| gzip \| ssh -i <врем. ключ> user@<приёмник> "cat > файл"`, на приёмнике `docker load -i файл` | перенос образа при медленном Docker Hub; сверить sha256 архива и ID образа; временный ключ удалить с обоих серверов |
+| [D] | `cd metabase && docker compose down -v` | остановить Metabase и УДАЛИТЬ его данные (том PostgreSQL: все сохранённые отчёты) |
 
 Секреты: `/opt/wms-constructor-secrets/app.env` (права 600, вне репозитория). Создание учётной записи БД `constructor_ro`
 выполнял администратор БД: `CREATE LOGIN` + `CREATE USER` + роли `db_datareader` и `db_denydatawriter` в `LV_MERIDIAN` и `MRDN_Exchange`.

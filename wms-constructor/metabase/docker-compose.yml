@@ -1,0 +1,50 @@
+# Пробная установка Metabase (Open Source) с внутренней базой PostgreSQL.
+# Секреты (пароль PostgreSQL, ключ шифрования) - вне репозитория: /opt/wms-constructor-secrets/metabase.env
+# Адрес публикации порта: файл .env рядом (BIND_ADDR=<адрес сервера>), в git не попадает.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: metabase-db
+    restart: unless-stopped
+    env_file: /opt/wms-constructor-secrets/metabase.env   # POSTGRES_PASSWORD
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_DB: metabaseappdb
+    volumes:
+      - metabase_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d metabaseappdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 512m
+
+  metabase:
+    image: metabase/metabase:v0.65.4.x
+    container_name: metabase
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: /opt/wms-constructor-secrets/metabase.env   # MB_DB_PASS, MB_ENCRYPTION_SECRET_KEY
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: metabaseappdb
+      MB_DB_USER: metabase
+      MB_SITE_LOCALE: ru
+      MB_ANON_TRACKING_ENABLED: "false"
+      JAVA_OPTS: "-Xmx1536m"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    mem_limit: 2g
+
+volumes:
+  metabase_pg:

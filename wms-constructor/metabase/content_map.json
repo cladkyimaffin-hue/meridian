@@ -1,0 +1,52 @@
+{
+ "root": 13,
+ "themes": {
+  "Остатки": {
+   "collection": 14,
+   "dashboards": {
+    "stock-products": 17,
+    "stock-issues": 18,
+    "places": 19,
+    "inventory": 20
+   }
+  },
+  "Приходы": {
+   "collection": 15,
+   "dashboards": {
+    "receipts": 21,
+    "reconcile-receipts": 22
+   }
+  },
+  "Расход и заказы": {
+   "collection": 16,
+   "dashboards": {
+    "orders": 23
+   }
+  },
+  "Задачи": {
+   "collection": 17,
+   "dashboards": {
+    "tasks": 24,
+    "staff-workload": 25
+   }
+  },
+  "Движение": {
+   "collection": 18,
+   "dashboards": {
+    "movement": 26,
+    "product-movement": 27
+   }
+  },
+  "Обмен с 1С": {
+   "collection": 19,
+   "dashboards": {
+    "exchange": 28,
+    "reconcile-orders": 29,
+    "km": 30
+   }
+  }
+ },
+ "kpi": 31,
+ "home": 32,
+ "heading_test": 33
+}

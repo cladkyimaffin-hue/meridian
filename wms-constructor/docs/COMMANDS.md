@@ -22,6 +22,7 @@
 | [R] | `METABASE_URL=http://<адрес>:3001 python3 metabase/hide_unused_tables.py` | пробный прогон: сколько таблиц Metabase останется видимыми (ключ API из файла секретов) |
 | [W] | `... hide_unused_tables.py --apply` / `--unhide-all --apply` | скрыть неиспользуемые таблицы / вернуть видимость всем (обратимо) |
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/mark_sensitive_columns.py` (`--revert` снимает) | пометить чувствительные столбцы «не показывать» |
+| [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/build_content.py --rebuild` | создать коллекции, модели, карточки, тахометры, дашборды и публичные ссылки из `queries/*.yaml`; прежняя корневая коллекция уходит в корзину Metabase (ручные правки в ней теряются из рабочей области; восстановимо из корзины); ссылки пишутся в `/opt/wms-constructor-secrets/metabase-public-links.txt` |
 
 Секреты: `/opt/wms-constructor-secrets/app.env` (права 600, вне репозитория). Создание учётной записи БД `constructor_ro`
 выполнял администратор БД: `CREATE LOGIN` + `CREATE USER` + роли `db_datareader` и `db_denydatawriter` в `LV_MERIDIAN` и `MRDN_Exchange`.

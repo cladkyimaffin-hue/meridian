@@ -189,8 +189,9 @@ queries:
   kind: таблица
   description: |
     Что показывает: Коды единиц измерения, заведённые в WMS (справочник LV_Unit). К ним можно сопоставлять единицы 1С.
-    Как считается: LV_Unit, 28 значений.
+    Как считается: LV_Unit и русские описания из LV_UnitLang (язык 4); 28 значений.
   sql: |
-    SELECT unt_Code AS [Код единицы WMS]
-    FROM dbo.LV_Unit
-    ORDER BY unt_Code
+    SELECT u.unt_Code AS [Код единицы WMS], ISNULL(ul.untl_Description, N'—') AS [Описание единицы], ISNULL(ul.untl_ShortDescription, N'—') AS [Краткое обозначение]
+    FROM dbo.LV_Unit u
+    LEFT JOIN dbo.LV_UnitLang ul ON ul.untl_UnitID=u.unt_ID AND ul.untl_LanguageID=4
+    ORDER BY u.unt_Code

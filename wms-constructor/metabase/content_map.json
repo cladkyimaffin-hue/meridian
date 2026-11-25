@@ -1,52 +1,51 @@
 {
- "root": 13,
+ "root": 20,
  "themes": {
   "Остатки": {
-   "collection": 14,
+   "collection": 21,
    "dashboards": {
-    "stock-products": 17,
-    "stock-issues": 18,
-    "places": 19,
-    "inventory": 20
+    "stock-products": 34,
+    "stock-issues": 35,
+    "places": 36,
+    "inventory": 37
    }
   },
   "Приходы": {
-   "collection": 15,
+   "collection": 22,
    "dashboards": {
-    "receipts": 21,
-    "reconcile-receipts": 22
+    "receipts": 38,
+    "reconcile-receipts": 39
    }
   },
   "Расход и заказы": {
-   "collection": 16,
+   "collection": 23,
    "dashboards": {
-    "orders": 23
+    "orders": 40
    }
   },
   "Задачи": {
-   "collection": 17,
+   "collection": 24,
    "dashboards": {
-    "tasks": 24,
-    "staff-workload": 25
+    "tasks": 41,
+    "staff-workload": 42
    }
   },
   "Движение": {
-   "collection": 18,
+   "collection": 25,
    "dashboards": {
-    "movement": 26,
-    "product-movement": 27
+    "movement": 43,
+    "product-movement": 44
    }
   },
   "Обмен с 1С": {
-   "collection": 19,
+   "collection": 26,
    "dashboards": {
-    "exchange": 28,
-    "reconcile-orders": 29,
-    "km": 30
+    "exchange": 45,
+    "reconcile-orders": 46,
+    "km": 47
    }
   }
  },
- "kpi": 31,
- "home": 32,
- "heading_test": 33
+ "kpi": 48,
+ "home": 49
 }

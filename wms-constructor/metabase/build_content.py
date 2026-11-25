@@ -76,12 +76,12 @@ def gauge_viz(value, name, theme):
     return {"gauge.segments": segs}
 
 
-def banner_md(text, c1, c2, h=84, size=0.5):
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 %d" preserveAspectRatio="xMidYMid meet">'
+def banner_md(text, c1, c2, h=84, size=0.5, w=1200):
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMid meet">'
            '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>'
-           '<rect width="1200" height="%d" rx="16" fill="url(#g)"/>'
-           '<text x="600" y="%d" font-family="Lato, Segoe UI, Arial, sans-serif" font-size="%d" font-weight="700" letter-spacing="1" text-anchor="middle" fill="#FFFFFF">%s</text></svg>'
-           ) % (h, c1, c2, h, round(h * 0.66), round(h * size), xesc(text))
+           '<rect width="%d" height="%d" rx="14" fill="url(#g)"/>'
+           '<text x="%d" y="%d" font-family="Lato, Segoe UI, Arial, sans-serif" font-size="%d" font-weight="700" letter-spacing="1" text-anchor="middle" fill="#FFFFFF">%s</text></svg>'
+           ) % (w, h, c1, c2, w, h, w // 2, round(h * 0.66), round(h * size), xesc(text))
     return "![](data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode() + ")"
 
 
@@ -178,6 +178,13 @@ def main():
     for p in sorted(glob.glob(os.path.join(QDIR, "*.yaml"))):
         d = yaml.safe_load(open(p, encoding="utf-8")); sections[d["section"]] = d
 
+    public = {}      # id дашборда -> uuid публичной ссылки
+    sec_public = {}  # ключ раздела -> uuid
+
+    def publish(did):
+        st, r = call("POST", f"/api/dashboard/{did}/public_link", {})
+        return r.get("uuid") if st < 300 and isinstance(r, dict) else None
+
     stats = {"cards": 0, "models": 0, "gauges": 0, "charts": 0, "fail": []}
     content = {"root": root_id, "themes": {}}
     dash_info = {}   # theme -> [(title, id)]
@@ -251,7 +258,7 @@ def main():
                         if sid is None: continue
                         st2, r2 = call("POST", f"/api/card/{sid}/query", {})
                         if st2 < 300 and isinstance(r2, dict) and r2.get("status") == "completed":
-                            kpis.append((theme, sid, c["name"])); made += 1; stats["gauges"] += 1
+                            kpis.append((theme, sid, c["name"], key_s)); made += 1; stats["gauges"] += 1
                         else:
                             call("PUT", f"/api/card/{sid}", {"archived": True})
                     if made == 0:
@@ -289,13 +296,13 @@ def main():
                             "description": f"Раздел «{sec['title']}» (источник: дашборд Grafana {sec.get('source_dashboard', '')}). Только чтение."})
             did = dash["id"]
             L, add, banner = new_layout(); row = 0
-            size = 0.46 if len(sec["title"]) <= 34 else 0.36
-            banner(banner_md(sec["title"], tc1, tc2, 84, size), row, 2); row += 2
+            size = 0.5 if len(sec["title"]) <= 34 else 0.4
+            banner(banner_md(sec["title"], tc1, tc2, 52, size), row, 2); row += 2
             def maps_for(card_id, tags):
                 return [{"parameter_id": t, "card_id": card_id, "target": ["variable", ["template-tag", t]]} for t in tags]
             for g in dict.fromkeys(b[0] for b in blocks):
                 gb = [b for b in blocks if b[0] == g]
-                banner(banner_md(g, blend(tc1, 0.12), blend(tc2, 0.05), 60, 0.5), row, 2); row += 2
+                banner(banner_md(g, blend(tc1, 0.12), blend(tc2, 0.05), 40, 0.5), row, 2); row += 2
                 charts = [b for b in gb if b[1] == "chart"]; tables = [b for b in gb if b[1] == "table"]
                 for i, b in enumerate(charts):
                     add(b[2], (i % 2) * 12, row + (i // 2) * 7, b[4], b[5], {"card.title": b[3]}, maps_for(b[2], b[6]))
@@ -309,6 +316,7 @@ def main():
             st, r = call("PUT", f"/api/dashboard/{did}", {"parameters": params, "dashcards": L["dcs"]})
             if st >= 300: stats["fail"].append(f"дашборд {sec['title']}: {str(r)[:200]}")
             content["themes"][theme]["dashboards"][key_s] = did
+            public[did] = publish(did); sec_public[key_s] = public[did]
             dash_info[theme].append((sec["title"], did))
             print(f"  [{theme}] {sec['title']}: дашборд {did}, блоков {len(blocks)}, фильтры {[p['id'] for p in params]}")
 
@@ -316,59 +324,44 @@ def main():
     st, kd = call("POST", "/api/dashboard", {"name": "Ключевые показатели склада", "collection_id": root_id,
                   "description": "Все показатели-числа по темам в виде тахометров с цветными зонами. Только чтение."})
     kid = kd["id"]; L, add, banner = new_layout(); row = 0
-    banner(banner_md("Ключевые показатели склада", "#1F3A5F", "#3C78B8", 96, 0.5), row, 2); row += 2
+    banner(banner_md("Ключевые показатели склада", "#1F3A5F", "#3C78B8", 52, 0.5), row, 2); row += 2
     for theme, _, _ in THEMES:
         items = [k for k in kpis if k[0] == theme]
         if not items: continue
         c1, c2 = THEME_COLORS[theme]
-        banner(banner_md(theme, c1, c2, 64, 0.52), row, 2); row += 2
-        for i, (_, sid, nm) in enumerate(items):
-            add(sid, (i % 4) * 6, row + (i // 4) * 4, 6, 4, {"card.title": nm})
+        banner(banner_md(theme, c1, c2, 40, 0.5), row, 2); row += 2
+        for i, (_, sid, nm, ks) in enumerate(items):
+            viz = {"card.title": nm}
+            if sec_public.get(ks):  # клик по тахометру открывает дашборд раздела с таблицами
+                viz["click_behavior"] = {"type": "link", "linkType": "url", "linkTemplate": "/public/dashboard/" + sec_public[ks], "linkTextTemplate": nm}
+            add(sid, (i % 4) * 6, row + (i // 4) * 4, 6, 4, viz)
         row += ((len(items) + 3) // 4) * 4
     st, r = call("PUT", f"/api/dashboard/{kid}", {"dashcards": L["dcs"]})
     if st >= 300: stats["fail"].append(f"дашборд показателей: {str(r)[:200]}")
     content["kpi"] = kid
 
-    # ---------- публичные ссылки (просмотр без пароля, без редактирования)
-    public = {}
-    def publish(did):
-        st, r = call("POST", f"/api/dashboard/{did}/public_link", {})
-        return r.get("uuid") if st < 300 and isinstance(r, dict) else None
-    for theme in dash_info:
-        for title, did in dash_info[theme]: public[did] = publish(did)
     public[kid] = publish(kid)
 
     # ---------- главная
     st, home = call("POST", "/api/dashboard", {"name": "Главная: склад LV_MERIDIAN", "collection_id": root_id,
                     "description": "Навигация по отчётам склада. Только чтение."})
     hid = home["id"]; L, add, banner = new_layout()
-    banner(banner_md("Склад АО «Меридиан»: отчёты", "#1F3A5F", "#3C78B8", 100, 0.5), 0, 2)
+    banner(banner_md("Склад АО «Меридиан»: отчёты", "#1F3A5F", "#3C78B8", 56, 0.5), 0, 2)
     kl = public.get(kid)
     vz = {"virtual_card": {"name": None, "display": "text", "archived": False},
-          "text": ("### Ключевые показатели\nВсе показатели склада в виде тахометров.\n\n" + (f"- [Открыть показатели](/public/dashboard/{kl})" if kl else "")), "dashcard.background": True}
-    add(None, 0, 2, 24, 3, vz)
+          "text": ("### [Ключевые показатели склада: тахометры →](/public/dashboard/%s)" % kl) if kl else "### Ключевые показатели", "dashcard.background": True}
+    vz.update({"text.align_horizontal": "center", "text.align_vertical": "middle"})
+    add(None, 0, 2, 24, 2, vz)
     for i, (theme, tdesc, _) in enumerate(THEMES):
         c1, c2 = THEME_COLORS[theme]
         links = "\n".join(f"- [{t}](/public/dashboard/{public[d]})" for t, d in dash_info[theme] if public.get(d))
-        md = banner_md(theme, c1, c2, 64, 0.52) + f"\n\n{tdesc}\n\n" + links
+        md = banner_md(theme, c1, c2, 46, 0.55, 360) + f"\n\n{tdesc}\n\n" + links
         v = {"virtual_card": {"name": None, "display": "text", "archived": False}, "text": md, "dashcard.background": True}
-        add(None, (i % 3) * 8, 5 + (i // 3) * 7, 8, 7, v)
+        add(None, (i % 3) * 8, 4 + (i // 3) * 7, 8, 7, v)
     st, r = call("PUT", f"/api/dashboard/{hid}", {"dashcards": L["dcs"]})
     if st >= 300: stats["fail"].append(f"главная: {str(r)[:200]}")
     public[hid] = publish(hid)
     content["home"] = hid
-
-    # ---------- пробный дашборд: варианты заголовков (для выбора)
-    st, td = call("POST", "/api/dashboard", {"name": "Проба оформления заголовков (можно удалить)", "collection_id": root_id})
-    tid = td["id"]; L, add, banner = new_layout()
-    def tcard(md, r, label):
-        v = {"virtual_card": {"name": None, "display": "text", "archived": False}, "text": md}; v.update(TXT); add(None, 0, r, 24, 2, v)
-    tcard("**Вариант 1.** Markdown по центру:\n\n## Обзор задач", 0, "")
-    tcard('**Вариант 2.** HTML цвет:\n\n<h2 style="text-align:center;color:#7B3FF2">Обзор задач</h2>', 2, "")
-    tcard('**Вариант 3.** HTML плашка:\n\n<div style="background:#7B3FF2;color:#fff;padding:10px;text-align:center;border-radius:10px">Обзор задач</div>', 4, "")
-    tcard("**Вариант 4.** SVG-баннер:\n\n" + banner_md("Обзор задач", "#6C3FB0", "#B08EE3", 84, 0.5), 6, "")
-    call("PUT", f"/api/dashboard/{tid}", {"dashcards": L["dcs"]})
-    content["heading_test"] = tid
 
     # ---------- ссылки для просмотра: в файл секретов (ссылки публичные для всех, у кого они есть)
     names = {did: t for th in dash_info for t, did in dash_info[th]}
@@ -382,7 +375,7 @@ def main():
     json.dump(content, open(os.path.join(HERE, "content_map.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"\nИТОГО: карточек {stats['cards']}, моделей {stats['models']}, тахометров {stats['gauges']}, графиков {stats['charts']}, "
           f"публичных ссылок {sum(1 for v in public.values() if v)}, проблем {len(stats['fail'])}")
-    print("главная:", hid, "| показатели:", kid, "| проба заголовков:", tid)
+    print("главная:", hid, "| показатели:", kid)
     for f in stats["fail"]: print("  ПРОБЛЕМА:", f)
 
 

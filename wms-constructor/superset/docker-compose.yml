@@ -1,0 +1,42 @@
+# Пробная установка Apache Superset 6.1.0 (образ superset-mssql:6.1.0 = официальный образ + pymssql + psycopg2).
+# Секреты вне репозитория: /opt/wms-constructor-secrets/superset.env
+# Адрес публикации порта: файл .env рядом (BIND_ADDR=<адрес сервера>), в git не попадает.
+services:
+  superset-db:
+    image: postgres:17-alpine
+    container_name: superset-db
+    restart: unless-stopped
+    env_file: /opt/wms-constructor-secrets/superset.env   # POSTGRES_PASSWORD
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_DB: superset
+    volumes:
+      - superset_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 384m
+
+  superset:
+    image: superset-mssql:6.1.0
+    container_name: superset
+    restart: unless-stopped
+    depends_on:
+      superset-db:
+        condition: service_healthy
+    env_file: /opt/wms-constructor-secrets/superset.env   # SUPERSET_SECRET_KEY, SUPERSET_DB_PASS, ADMIN_PASSWORD
+    environment:
+      SERVER_WORKER_AMOUNT: "2"
+      SERVER_THREADS_AMOUNT: "8"
+    volumes:
+      - ./superset_config.py:/app/pythonpath/superset_config.py:ro
+      - superset_home:/app/superset_home
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8088:8088"
+    mem_limit: 1536m
+
+volumes:
+  superset_pg:
+  superset_home:

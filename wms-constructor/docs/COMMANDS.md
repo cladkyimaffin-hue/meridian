@@ -26,6 +26,10 @@
 | [W] | `... hide_unused_tables.py --apply` / `--unhide-all --apply` | скрыть неиспользуемые таблицы / вернуть видимость всем (обратимо) |
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/mark_sensitive_columns.py` (`--revert` снимает) | пометить чувствительные столбцы «не показывать» |
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/build_content.py --rebuild` | создать коллекции, модели, карточки, тахометры, дашборды и публичные ссылки из `queries/*.yaml`; прежняя корневая коллекция уходит в корзину Metabase (ручные правки в ней теряются из рабочей области; восстановимо из корзины); ссылки пишутся в `/opt/wms-constructor-secrets/metabase-public-links.txt` |
+| [W] | `docker cp superset/build_stock_dashboard.py superset:/tmp/ && docker exec superset python /tmp/build_stock_dashboard.py` | пересоздать витрину `dm_stock` и дашборд «Остатки склада (параллельный отчёт)» (`wms-stock-parallel`); старые диаграммы «Остатки (параллельно)*» удаляются |
+| [W] | `docker cp superset/backfill_query_context.py superset:/tmp/ && docker exec superset python /tmp/backfill_query_context.py` | заполнить пустой `query_context` у диаграмм (без него API отвечает «Chart has no query context saved»); ключ `--force` перезаписывает всем |
+| [W] | `docker exec -i superset-db psql -U superset -d superset < superset/fix_fab_permissions.sql && docker restart superset` | вернуть последовательности таблицам прав FAB и выдать `datasource_access` на наборы данных; после — перезапуск Superset (дашборды недоступны ~30 с) |
+| [R] | `curl -s -H "Authorization: Bearer <токен>" http://<адрес>:8088/api/v1/chart/<id>/data/?format=json` | проверка, что диаграмма отдаёт данные (в ответе `result[0].error` должно быть `null`) |
 
 Секреты: `/opt/wms-constructor-secrets/app.env` (права 600, вне репозитория). Создание учётной записи БД `constructor_ro`
 выполнял администратор БД: `CREATE LOGIN` + `CREATE USER` + роли `db_datareader` и `db_denydatawriter` в `LV_MERIDIAN` и `MRDN_Exchange`.

@@ -28,6 +28,7 @@ source_of_truth: "00_Meta/registry.csv"
 | [Опрос точек доступа Qtech: служба wifi-ap-exporter на wmsWiFi](<02_Exporters/Опрос точек доступа Qtech служба wifi-ap-exporter на wmsWiFi.md>) | setup | completed | Опрос девяти точек по SSH раз в минуту (только чтение), ключ, служба, правило `ufw`, цели Prometheus, откат, риски |
 | [Расхождение часов на точках доступа Qtech и NTP-контейнер wmsWiFi](<06_Troubleshooting/Расхождение часов на точках доступа Qtech и NTP-контейнер wmsWiFi.md>) | troubleshooting | completed | Часы точек спешили на 16 минут и отставали на 47 суток: причина в NTP-контейнере Qtech и точке `.159`, исправление, проверка, откат, что не решено |
 | [Источник данных wmsDB LV_MERIDIAN в Grafana и папка Отчёты WMS](<03_MSSQL/Источник данных wmsDB LV_MERIDIAN в Grafana и папка Отчёты WMS.md>) | setup | completed | Читающий доступ Grafana к базам LV_MERIDIAN (1238 таблиц) и MRDN_Exchange (30 таблиц IFC_*), права, источник через provisioning, папка «Отчёты WMS», откат, риски |
+| [Справочник таблиц LV_MERIDIAN и MRDN_Exchange для отчётов](<03_MSSQL/Справочник таблиц LV_MERIDIAN и MRDN_Exchange для отчётов.md>) | reference | in_progress | Карта таблиц WMS по темам с числом строк, подтверждённые связи, статусы заданий и расходных партий, таблицы обмена с 1С, что не проверено |
 
 ## Служебные файлы домена
 

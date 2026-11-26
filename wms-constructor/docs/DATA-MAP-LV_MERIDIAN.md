@@ -171,12 +171,14 @@ LEFT JOIN dbo.LV_Messages m ON m.msg_code = st.ors_MessageCode AND m.msg_languag
 
 ## 10. Что делать дальше (план отчётов)
 
-1. **Витрина «Остатки»** — `LV_Stock` + локации + зоны + товар + единица (готовый SQL выше). В Superset: dataset + дашборд «Остатки: сводка / по зонам / по товарам».
-2. **Витрина «Движение»** — `LV_Log` + `LV_LogStock` по дням, типам операций (`LV_TransactionType`), зонам.
-3. **Витрина «Приходы»** — `LV_Receipt` + `LV_ReceiptItem` + поставщик + статус.
-4. **Витрина «Расход»** — `LV_Order` + `LV_OrderShipment` + `LV_OrderShipItem` + клиент + статус.
-5. **Витрина «Задачи/исполнители»** — `LV_Task` + `COM_Employee` + `LV_ProgressStatus`.
-6. **Витрина «Обмен с 1С»** — `LV_ImpLog*` + `LV_ImportStatus` (ошибки импорта).
+1. **Витрина «Остатки»** — `LV_Stock` + локации + зоны + товар + единица (готовый SQL выше). В Superset: dataset + дашборд «Остатки: сводка / по зонам / по товарам». ✅ сделано 2026-11-25 (`dm_stock`, `wms-stock-parallel`).
+2. **Витрина «Движение»** — `LV_Log` + `LV_LogStock` по дням, типам операций (`LV_TransactionType`), зонам. ✅ сделано 2026-11-26 (`dm_movement`, `wms-movement`).
+3. **Витрина «Приходы»** — `LV_Receipt` + `LV_ReceiptItem` + поставщик + статус. ✅ сделано 2026-11-26 (`dm_receipts`, `dm_receipt_lines`, `wms-receipts`).
+4. **Витрина «Расход»** — `LV_Order` + `LV_OrderShipment` + `LV_OrderShipItem` + клиент + статус. ✅ сделано 2026-11-26 (`dm_orders`, `dm_order_lines`, `wms-orders`).
+5. **Витрина «Задачи/исполнители»** — `LV_Task` + `COM_Employee` + `LV_ProgressStatus`. ⏳ следующее.
+6. **Витрина «Обмен с 1С»** — `LV_ImpLog*` + `LV_ImportStatus` (ошибки импорта). ⏳ следующее.
+
+Сверка кодов типов прихода/расхода и статусов с ТЗ — [TYPE-CODES-CHECK.md](TYPE-CODES-CHECK.md): коды совпадают полностью.
 
 Порядок: сначала 1 и 2 (самые востребованные), затем 3–4, потом 5–6. Каждая витрина = один SQL-датасет в Superset, поверх — дашборд с фильтрами по зоне/товару/дате.
 

@@ -47,8 +47,28 @@ VERIFIED (подтверждено данными или командой), INFE
 * **Найденная и устранённая поломка (VERIFIED 2026-11-25).** В метабазе Superset (Postgres `superset-db`) у таблиц прав FAB отсутствовали sequence для `id` — база восстановлена из дампа без них. Из-за этого права `datasource_access` не создавались, и `POST /api/v1/chart/data` отвечал 403 «requires the datasource N …». Лечение: [superset/fix_fab_permissions.sql](../../superset/fix_fab_permissions.sql), затем `docker restart superset`.
 * **Вторая поломка (VERIFIED 2026-11-25).** У 12 старых диаграмм пустой `query_context` → «Chart has no query context saved». Лечение: [superset/backfill_query_context.py](../../superset/backfill_query_context.py). После обеих починок все 16 диаграмм отдают данные (проверено `GET /api/v1/chart/{id}/data/`).
 * **Витрина остатков:** набор `dm_stock` (id 10) + дашборд «Остатки склада (параллельный отчёт)», slug `wms-stock-parallel`. Строится скриптом [superset/build_stock_dashboard.py](../../superset/build_stock_dashboard.py) (идемпотентен). Проверено 2026-11-25: 399 строк, 58 230 единиц, 14 зон, анонимный просмотр — HTTP 200.
-* API Superset: вход только через сессию (`superset/sscli.py`), JWT не даёт прав на списки. Наборы данных — виртуальные, без `ORDER BY` верхнего уровня (в подзапросе SQL Server запрещает). Анонимный просмотр: роль Public, которой выданы права на наборы данных, плюс `DASHBOARD_RBAC` для дашбордов; дашборд должен быть опубликован (`published=true`) и иметь владельца, иначе он не виден в списках. Оформление: CSS дашборда, HTML-баннеры, свои палитры в `superset_config.py` (палитра остатков — `t_ostatki`).
-* Ограничение, которое надо помнить: роль Public после починки имеет `datasource_access` на все наборы, то есть аноним может запрашивать данные через API напрямую, не только через дашборд. Решение по ограничению не принято.
+* **Витрины операций (VERIFIED 2026-11-26):** пять наборов и три дашборда, строятся [superset/build_operation_dashboards.py](../../superset/build_operation_dashboards.py) (идемпотентен, в конце самопроверка через API — 23/23 графиков отдают данные, анонимно 200):
+
+  | Набор | Строк | Дашборд | Slug |
+  |---|---|---|---|
+  | `dm_movement` | 8 828 | Движение товара (7 графиков) | `wms-movement` |
+  | `dm_receipts` / `dm_receipt_lines` | 298 / 594 | Приходы (8) | `wms-receipts` |
+  | `dm_orders` / `dm_order_lines` | 189 / 370 | Расход (8) | `wms-orders` |
+
+  Количества на этих дашбордах выводятся **только в разрезе единицы** (Штука/Пара/метр/Комплект): складывать их между собой нельзя. Тренды строятся по колонкам-датам `day`/`input_day`, иначе Superset группирует по секундам и график отдаёт тысячи точек.
+* **Ловушки API Superset, стоившие времени (VERIFIED 2026-11-26).** Их надо помнить при любом программном создании диаграмм:
+  1. `extras.time_range` внутри `query_context.queries[0]` → 400 «Unknown field». Период задавать только в `form_data.time_range`. `extras` = `{"having": "", "where": ""}`.
+  2. SIMPLE-метрика с `column: null` (например `COUNT` по всему набору) валит компиляцию: «Cannot compile Column object until its 'name' is assigned». Использовать SQL-метрики: `{"expressionType": "SQL", "sqlExpression": "COUNT(1)", ...}`.
+  3. В `queries[0].columns` надо класть `x_axis` **и** `groupby`. Если положить только `groupby`, график схлопывается в одну строку (проверено: «по типам операций» отдавал 1 строку вместо 17).
+  4. Режим `is_timeseries: true` требует `main_dttm_col` и падает с «Datetime column not provided as part table configuration». Проще группировать по усечённой колонке-дате.
+  5. `orderby` оставлять пустым: непарный формат → «Length must be 2».
+* API Superset: вход только через сессию (`superset/sscli.py`), JWT не даёт прав на списки — при программной проверке логиниться формой `/login/`, а не через `/api/v1/security/login`. Наборы данных — виртуальные, без `ORDER BY` верхнего уровня (в подзапросе SQL Server запрещает).
+* **Анонимный просмотр (VERIFIED 2026-11-26), две отдельные вещи:**
+  1. сам дашборд открывается, если `published=true`, есть владелец и запись в `dashboard_roles` для роли Public с `DASHBOARD_RBAC`. Без записи в `dashboard_roles` — 302 на `/login/`.
+  2. данные графиков приходят, только если у Public есть `datasource_access` на наборы. Выдаётся [superset/grant_public_data.sql](../../superset/grant_public_data.sql). Без него дашборд открывается, но диаграммы пустые (`/api/v1/chart/{id}/data/` → 404).
+  Пользователям ссылки давать через **порт 8090** (`superset-viewer`, прокси Caddy): `/superset/dashboard/<slug>/?standalone=2`. Проверено 2026-11-26 и на 8088, и на 8090: дашборды 200, `POST /api/v1/chart/data` через 8090 отдаёт данные (17 строк по типам операций), несмотря на урезанную роль Public.
+  Оформление: CSS дашборда, HTML-баннеры, свои палитры в `superset_config.py` (`t_ostatki`, `t_prihody`, `t_rashod`, `t_dvizhenie`, `t_zadachi`, `t_obmen`).
+* Ограничение, которое надо помнить: роль Public имеет `datasource_access` на все наборы, используемые опубликованными дашбордами, то есть аноним может запрашивать данные через API напрямую, не только через дашборд. Частично закрыто прокси на порту 8090 (он режет `/api/v1/dataset`, `/api/v1/database`, списки и редакторы), но `/api/v1/chart/{id}/data/` и `POST /api/v1/chart/data` проходят — иначе дашборды не отрисовались бы. Решение по более строгому ограничению не принято.
 
 ## Память проекта: как её вести
 

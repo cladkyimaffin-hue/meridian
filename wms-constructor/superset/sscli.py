@@ -27,7 +27,7 @@ class SS:
         assert "login" not in x.geturl().split("/")[-2:], "вход не удался"
         self.csrf=self.call("GET","/api/v1/security/csrf_token/")[1]["result"]
     def call(self,m,p,body=None,t=180):
-        h={"Content-Type":"application/json"}
+        h={"Content-Type":"application/json"} if body is not None else {}
         if m!="GET": h["X-CSRFToken"]=self.csrf; h["Referer"]=B
         p=urllib.parse.quote(p,safe="/?=&:,%{}[]"+chr(34))
         r=urllib.request.Request(B+p,method=m,data=(json.dumps(body).encode() if body is not None else None),headers=h)

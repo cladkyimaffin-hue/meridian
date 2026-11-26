@@ -175,4 +175,10 @@ body = {"position_json": json.dumps(pos, ensure_ascii=False), "published": True,
 if pub: body["roles"] = [pub]
 st, r = s.call("PUT", f"/api/v1/dashboard/{DASH}", body)
 print("раскладка и роль Public: HTTP", st, "" if st < 300 else clean(r)[:300])
+# диаграммы, созданные через API, без query_context не отдают данные: заполняем (скрипт идемпотентен)
+import subprocess
+HERE_SS = os.path.dirname(os.path.abspath(__file__))
+subprocess.run(["docker", "cp", os.path.join(HERE_SS, "backfill_query_context.py"), "superset:/tmp/"], check=False)
+out = subprocess.run(["docker", "exec", "superset", "python", "/tmp/backfill_query_context.py"], capture_output=True, text=True)
+print("query_context:", (out.stdout.strip().splitlines() or ["нет вывода"])[-1])
 print(f"\nГОТОВО: {B}/superset/dashboard/{SLUG}/?standalone=2  (тахометров {len(gauges)})")

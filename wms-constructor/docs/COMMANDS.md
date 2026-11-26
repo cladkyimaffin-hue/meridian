@@ -22,6 +22,9 @@
 | [W] | `cd superset && docker compose up -d` | запуск Superset и его PostgreSQL (секреты: `/opt/wms-constructor-secrets/superset.env`; адрес порта: `superset/.env`) |
 | [W] | `SUPERSET_URL=http://<адрес>:8088 python3 superset/pilot_tasks.py --rebuild` | пересоздать пробный дашборд «Задачи склада» (старый удаляется) |
 | [D] | `cd superset && docker compose down -v` | остановить Superset и УДАЛИТЬ его данные (внутренняя база: все наборы данных, диаграммы, дашборды) |
+| [W] | `SUPERSET_URL=http://<адрес>:8088 python3 superset/pilot_tasks.py --rebuild` и `python3 superset/build_home.py` | пересоздать дашборд «Задачи склада» и «Главную» (только свои объекты) |
+| [W] | `docker exec -i superset python - < superset/trim_public_role.py` | урезать права анонимной роли Public до просмотра дашбордов |
+| [R] | `docker logs --tail 50 superset-viewer` | журнал входа для просмотра (порт 8090) |
 | [R] | `METABASE_URL=http://<адрес>:3001 python3 metabase/hide_unused_tables.py` | пробный прогон: сколько таблиц Metabase останется видимыми (ключ API из файла секретов) |
 | [W] | `... hide_unused_tables.py --apply` / `--unhide-all --apply` | скрыть неиспользуемые таблицы / вернуть видимость всем (обратимо) |
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/mark_sensitive_columns.py` (`--revert` снимает) | пометить чувствительные столбцы «не показывать» |

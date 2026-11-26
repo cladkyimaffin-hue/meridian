@@ -12,7 +12,7 @@ EXPLORE_FORM_DATA_CACHE_CONFIG = _cache
 
 # Просмотр без пароля: аноним получает роль Public с правами Gamma (потом ограничиваем до нужных наборов данных)
 AUTH_ROLE_PUBLIC = "Public"
-PUBLIC_ROLE_LIKE = "Gamma"
+PUBLIC_ROLE_LIKE = None  # права роли Public заданы вручную (только просмотр), не копировать из Gamma
 
 # Свобода оформления: разрешаем HTML со стилями в Markdown-блоках дашбордов (создаёт только администратор)
 HTML_SANITIZATION = False

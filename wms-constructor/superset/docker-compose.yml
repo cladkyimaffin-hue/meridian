@@ -37,6 +37,19 @@ services:
       - "${BIND_ADDR:-127.0.0.1}:8088:8088"
     mem_limit: 1536m
 
+  # Вход для просмотра: прокси, закрывающий адреса редакторов (порт 8090)
+  superset-viewer:
+    image: caddy:2
+    container_name: superset-viewer
+    restart: unless-stopped
+    depends_on:
+      - superset
+    volumes:
+      - ./Caddyfile.viewer:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8090:8090"
+    mem_limit: 96m
+
 volumes:
   superset_pg:
   superset_home:

@@ -1,0 +1,19 @@
+# Вход для просмотра отчётов (порт 8090): только дашборды, без входа, редакторов, SQL Lab и API управления.
+{
+	admin off
+	auto_https off
+}
+
+:8090 {
+	@blocked path /login* /logout* /explore* /sqllab* /superset/explore* /superset/sqllab* /superset/welcome* /superset/profile* /superset/slice* \
+		/chart/* /dashboard/list* /dashboard/new* /databaseview* /tablemodelview* /users* /roles* /permissions* /swagger* /logs* /tags* /csstemplatemodelview* \
+		/api/v1/security/login* /api/v1/security/refresh* /api/v1/database* /api/v1/dataset* /api/v1/sqllab* /api/v1/saved_query* /api/v1/css_template* \
+		/api/v1/theme* /api/v1/tag* /api/v1/report* /api/v1/chart/export* /api/v1/dashboard/export* /api/v1/dashboard /api/v1/dashboard/ /api/v1/chart /api/v1/chart/ \
+		/api/v1/_openapi* /api/v1/menu* /api/v1/me/roles*
+	respond @blocked "Страница недоступна в режиме просмотра." 403
+
+	@root path /
+	redir @root /superset/dashboard/home/?standalone=2 302
+
+	reverse_proxy superset:8088
+}

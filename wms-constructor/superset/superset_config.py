@@ -43,9 +43,11 @@ PORTAL_HOME = "/superset/dashboard/home/?standalone=2"
 PORTAL_ALLOW = (
     # страница отчёта
     r"^/superset/dashboard/[^/]+/?$",
-    # метаданные дашборда и его состав (чем нарисован отчёт)
+    # метаданные дашборда и его состав (чем нарисован отчёт).
+    # /colors сюда не входит: это запись палитры подписей (PUT), анониму она
+    # не нужна — отчёт рисуется и без неё, проверено.
     r"^/api/v1/dashboard/[^/]+$",
-    r"^/api/v1/dashboard/[^/]+/(charts|datasets|colors)$",
+    r"^/api/v1/dashboard/[^/]+/(charts|datasets)$",
     # данные диаграмм (в том числе cross-filter)
     r"^/api/v1/chart/data",
     r"^/api/v1/chart/[0-9]+/data/?$",

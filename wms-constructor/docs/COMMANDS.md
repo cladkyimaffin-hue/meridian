@@ -30,16 +30,27 @@
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/mark_sensitive_columns.py` (`--revert` снимает) | пометить чувствительные столбцы «не показывать» |
 | [W] | `METABASE_URL=http://<адрес>:3001 python3 metabase/build_content.py --rebuild` | создать коллекции, модели, карточки, тахометры, дашборды и публичные ссылки из `queries/*.yaml`; прежняя корневая коллекция уходит в корзину Metabase (ручные правки в ней теряются из рабочей области; восстановимо из корзины); ссылки пишутся в `/opt/wms-constructor-secrets/metabase-public-links.txt` |
 | [W] | `docker cp superset/build_stock_dashboard.py superset:/tmp/ && docker exec superset python /tmp/build_stock_dashboard.py` | пересоздать витрину `dm_stock` и дашборд «Остатки склада (параллельный отчёт)» (`wms-stock-parallel`); старые диаграммы «Остатки (параллельно)*» удаляются |
-| [W] | `docker cp superset/build_operation_dashboards.py superset:/tmp/ && docker exec superset python /tmp/build_operation_dashboards.py` | пересоздать витрины `dm_movement`, `dm_receipts`, `dm_receipt_lines`, `dm_orders`, `dm_order_lines` и дашборды `wms-movement`/`wms-receipts`/`wms-orders`; в конце самопроверка через API (должно быть «все 23 диаграмм отдают данные» и три «анонимно …: ok») |
-| [W] | `docker exec -i superset-db psql -U superset -d superset < superset/grant_public_data.sql` | выдать роли Public права `datasource_access` на наборы опубликованных дашбордов (без этого дашборд открывается, а диаграммы пустые) |
-| [W] | `SUPERSET_URL=http://<адрес>:8088 python3 superset/build_home.py` | пересобрать стартовую страницу-портал (slug `home`): герой, карточки отчётов, подсказка. Список отчётов проверяется через API: ссылка есть только у существующих дашбордов, остальные показаны серыми «скоро» |
-| [W] | `SUPERSET_URL=http://<адрес>:8088 python3 superset/apply_portal_chrome.py` | добавить всем отчётам баннер «название + ← Главная» и CSS, скрывающий меню Superset; идемпотентно |
-| [W] | `docker cp superset/enable_cross_filters.py superset:/tmp/ && docker exec superset python /tmp/enable_cross_filters.py` | включить `emit_filter` у диаграмм (без него клик по строке таблицы не фильтрует остальные графики); идемпотентно |
-| [W] | `cp superset/superset_config.py` в `/opt/meridian/wms-constructor/superset/` **на хосте**, затем `docker restart superset` | применить настройки (в т.ч. режим «портал»); `superset_config.py` смонтирован в контейнер, поэтому `docker cp` в него не работает — «device or resource busy» |
-| [R] | `SUPERSET_PORTAL_MODE=0` в окружении контейнера | отключить режим «портал» (аноним снова ходит везде, как до 2026-11-27) |
+| [W] | `docker cp superset/build_operation_dashboards.py superset:/tmp/ && docker exec superset python /tmp/build_operation_dashboards.py` | пересоздать витрины `dm_movement`, `dm_receipts`, `dm_receipt_lines`, `dm_orders`, `dm_order_lines` и три дашборда: «Движение товара» (`wms-movement`), «Приходы» (`wms-receipts`), «Расход» (`wms-orders`). В конце печатает самопроверку по каждой диаграмме через API |
+| [W] | `docker cp superset/build_exchange_dashboard.py superset:/tmp/ && docker exec superset python /tmp/build_exchange_dashboard.py` | собрать витрины `dm_exchange_queue`, `dm_exchange_errors` (обе читают `MRDN_Exchange.dbo.IFC_ExchangeQueue*`) и дашборд «Обмен с 1С: очереди и ошибки» (`wms-exchange`). В конце — самопроверка всех 9 диаграмм |
+| [W] | `docker cp superset/russian_labels.py superset:/tmp/ && docker exec superset python /tmp/russian_labels.py` | поставить русские подписи полям витрин (`verbose_name`) из словаря `LV_Messages` (язык 4) и в конце проверить, что все диаграммы по-прежнему отдают данные. **Трогает только подписи, не имена полей** — имена полей в `params` диаграмм должны остаться латиницей, иначе SQL Server ответит `Invalid column name` |
+| [W] | `docker cp superset/apply_portal_chrome.py superset:/tmp/ && SUPERSET_URL=http://<адрес>:8088 python3 superset/apply_portal_chrome.py` | вставить шапку с кнопкой «← Главная» и CSS темы во все отчёты (6 дашбордов). Запускать **после** любых пересборок отчётов: построители диаграмм пересоздают дашборды без шапки |
+| [W] | `docker cp superset/build_translations.py superset:/tmp/ && docker exec -u root superset python /tmp/build_translations.py && docker restart superset` | собрать русский язык интерфейса: `messages.mo` (серверные строки) и `messages.json` в формате gettext для i18next (подписи «Без фильтрации», «Применить», «Сбросить» и прочие). После сборки нужен перезапуск (~30 с) |
+| [W] | `docker cp superset/paint_labels.py superset:/tmp/ && docker exec superset python /tmp/paint_labels.py` | заранее раскрасить подписи метрик, чтобы при открытии отчёта фронтенд не пытался сохранить цвета |
 | [W] | `docker cp superset/backfill_query_context.py superset:/tmp/ && docker exec superset python /tmp/backfill_query_context.py` | заполнить пустой `query_context` у диаграмм (без него API отвечает «Chart has no query context saved»); ключ `--force` перезаписывает всем |
 | [W] | `docker exec -i superset-db psql -U superset -d superset < superset/fix_fab_permissions.sql && docker restart superset` | вернуть последовательности таблицам прав FAB и выдать `datasource_access` на наборы данных; после — перезапуск Superset (дашборды недоступны ~30 с) |
 | [R] | `curl -s -H "Authorization: Bearer <токен>" http://<адрес>:8088/api/v1/chart/<id>/data/?format=json` | проверка, что диаграмма отдаёт данные (в ответе `result[0].error` должно быть `null`) |
+| [R] | `curl -s -o /dev/null -w '%{http_code}' "http://<адрес>:8090/superset/dashboard/<slug>/?standalone=2"` | проверка анонимного просмотра конкретного отчёта (ждём 200) |
+| [R] | `curl -s -o /dev/null -w '%{http_code}' http://<адрес>:8090/api/v1/dataset/18` | проверка, что данные и редакторы для анонима закрыты (ждём 403) |
+
+**Порядок полной пересборки отчётов** (важен: шаги 3 и 4 восстанавливают то, что стирают построители):
+
+```
+1. build_stock_dashboard.py / build_operation_dashboards.py / build_exchange_dashboard.py
+2. russian_labels.py          — русские подписи полей витрин
+3. apply_portal_chrome.py     — шапки «← Главная» и CSS тем
+4. paint_labels.py            — цвета подписей метрик
+5. build_home.py              — главная страница (ссылки по факту существования отчётов)
+```
 
 Секреты: `/opt/wms-constructor-secrets/app.env` (права 600, вне репозитория). Создание учётной записи БД `constructor_ro`
 выполнял администратор БД: `CREATE LOGIN` + `CREATE USER` + роли `db_datareader` и `db_denydatawriter` в `LV_MERIDIAN` и `MRDN_Exchange`.

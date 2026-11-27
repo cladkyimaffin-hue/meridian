@@ -33,6 +33,7 @@ MAP = {
     "wms-orders": "Расход и заказы",
     "tasks-pilot": "Задачи",
     "wms-movement": "Движение",
+    "wms-exchange": "Обмен с 1С",
 }
 
 BANNER_ID = "MARKDOWN-NAVBAR"

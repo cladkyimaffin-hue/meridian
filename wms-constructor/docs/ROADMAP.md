@@ -11,7 +11,9 @@
 | Витрины «Движение», «Приходы», «Расход» в Superset | ✅ сделано (2026-11-26) | `superset/build_operation_dashboards.py`, `/superset/dashboard/wms-movement|wms-receipts|wms-orders/` |
 | Сверка типов прихода/расхода с ТЗ | ✅ сделано (2026-11-26) | [TYPE-CODES-CHECK.md](TYPE-CODES-CHECK.md) |
 | Портал: стартовая страница, только отчёты, кросс-фильтры | ✅ сделано (2026-11-27) | `superset/build_home.py`, `apply_portal_chrome.py`, `enable_cross_filters.py` |
-| Витрины «Задачи», «Обмен с 1С» | ⏳ следующее | ниже, этап 2 |
+| Витрины «Обмен с 1С» + дашборд | ✅ сделано (2026-11-27) | `superset/build_exchange_dashboard.py`, `/superset/dashboard/wms-exchange/` |
+| Русские названия столбцов и интерфейса | ✅ сделано (2026-11-27) | `superset/russian_labels.py`, `superset/build_translations.py` |
+| Сверка расхода с 1С, маркировка КМ, нагрузка по исполнителям | ⏳ следующие отчёты (карточки «(скоро)» на главной) | ниже, этап 2 |
 | Конструктор-«пазл» | 💬 обсуждение, решения нет | раздел «Возможные этапы» |
 
 ## Идея пользователя (2026-11-22, обсуждение)

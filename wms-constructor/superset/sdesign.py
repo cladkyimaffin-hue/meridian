@@ -17,15 +17,19 @@ def banner(text, colors, back=True, size=28):
     d, l = colors[0], colors[1]
     link = (f'<a href="{HOME_URL}" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#fff;'
             f'font-size:14px;font-weight:600;text-decoration:none;background:rgba(255,255,255,.22);padding:5px 12px;border-radius:14px">← Главная</a>') if back else ""
-    return (f'<div style="position:relative;display:flex;align-items:center;justify-content:center;height:56px;margin:0;color:#fff;'
+    # text-overflow: при узком окне длинный заголовок сжимается многоточием,
+    # а не вылезает за границы баннера
+    return (f'<div style="position:relative;display:flex;align-items:center;justify-content:center;height:52px;margin:0;color:#fff;'
             f'font-size:{size}px;font-weight:700;letter-spacing:1px;border-radius:14px;background:linear-gradient(90deg,{d},{l});'
-            f'box-shadow:0 2px 8px rgba(0,0,0,.15)">{link}<span>{text}</span></div>')
+            f'box-shadow:0 2px 8px rgba(0,0,0,.15);overflow:hidden">'
+            f'{link}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px">{text}</span></div>')
 
 
 def subheader(text, theme):
     d, l, tint, _ = THEMES[theme]
     return (f'<div style="display:flex;align-items:center;justify-content:center;height:38px;margin:0;color:{d};font-size:19px;font-weight:700;'
-            f'background:{tint};border-left:6px solid {d};border-right:6px solid {l};border-radius:10px">{text}</div>')
+            f'background:{tint};border-left:6px solid {d};border-right:6px solid {l};border-radius:10px;overflow:hidden">'
+            f'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px">{text}</span></div>')
 
 
 def dashboard_css(theme):
@@ -39,6 +43,11 @@ body,.dashboard{{background:#F5F7FB}}
 /* заголовки диаграмм по центру */
 .dashboard-component-chart-holder .slice-header,.dashboard-component-chart-holder .chart-header{{position:relative;display:flex!important;justify-content:center!important}}
 .dashboard-component-chart-holder .header-title,.dashboard-component-chart-holder .header-title *{{text-align:center!important;font-weight:700!important;font-size:16px!important;color:{d}!important;justify-content:center}}
+/* Заголовок тахометра/графика в узком блоке: переносится на вторую строку,
+   а не обрезается многоточием. Одно длинное слово («Приостановлено») разрешаем
+   переносить по буквам — иначе оно всё равно вылезало за границы блока */
+.dashboard-component-chart-holder .header-title{{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;height:auto!important;line-height:1.2!important;word-break:break-word!important;overflow-wrap:anywhere!important}}
+.dashboard-component-chart-holder .header-title *{{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;word-break:break-word!important;overflow-wrap:anywhere!important;max-width:100%!important}}
 .dashboard-component-chart-holder .header-controls{{position:absolute;right:6px;top:4px}}
 /* таблицы: шапка-градиент, зебра, подсветка */
 .dashboard table thead th{{background:linear-gradient(90deg,{d},{l})!important;color:#fff!important;font-weight:700}}
@@ -48,6 +57,10 @@ body,.dashboard{{background:#F5F7FB}}
 /* без ползунков у Markdown-блоков */
 .dashboard-markdown,.dashboard-markdown>div,.dashboard-markdown .markdown,.dashboard-component-markdown{{overflow:hidden!important}}
 .dashboard-markdown ::-webkit-scrollbar{{display:none}}
+/* Markdown вставляет <p> с внешними отступами: из-за них баннер обрезался снизу */
+.dashboard-markdown p,.dashboard-component-markdown p{{margin:0!important;padding:0!important;line-height:1.2!important}}
+/* заголовок отчёта не выходит за границы своего блока */
+.dashboard-markdown>div{{max-width:100%!important}}
 """
 
 
@@ -59,7 +72,8 @@ body,.dashboard{background:#F5F7FB}
 .dashboard-header-container{display:none!important}
 .dashboard-markdown,.dashboard-markdown>div,.dashboard-markdown .markdown,.dashboard-component-markdown{overflow:hidden!important}
 .dashboard-markdown ::-webkit-scrollbar{display:none}
-.dashboard-markdown p{margin:0!important;padding:0!important}
+.dashboard-markdown p,.dashboard-component-markdown p{margin:0!important;padding:0!important;line-height:1.2!important}
+.dashboard-markdown>div{max-width:100%!important}
 .hm-link{display:block;margin:7px 0;padding:9px 14px;border-radius:12px;text-decoration:none!important;font-weight:600;text-align:center;transition:transform .12s}
 .hm-link:hover{transform:translateY(-1px);filter:brightness(.96)}
 """

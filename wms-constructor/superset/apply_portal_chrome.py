@@ -29,11 +29,19 @@ import sdesign as D
 # slug отчёта -> тема оформления
 MAP = {
     "wms-stock-parallel": "Остатки",
+    "wms-stock-issues": "Остатки",
+    "wms-places": "Остатки",
+    "wms-inventory": "Остатки",
     "wms-receipts": "Приходы",
+    "wms-reconcile-receipts": "Приходы",
     "wms-orders": "Расход и заказы",
     "tasks-pilot": "Задачи",
+    "wms-staff-workload": "Задачи",
     "wms-movement": "Движение",
+    "wms-product-movement": "Движение",
     "wms-exchange": "Обмен с 1С",
+    "wms-reconcile-orders": "Обмен с 1С",
+    "wms-km": "Обмен с 1С",
 }
 
 BANNER_ID = "MARKDOWN-NAVBAR"
@@ -73,7 +81,8 @@ def put_banner(slug, theme):
         "id": BANNER_ID,
         "children": [],
         "parents": ["ROOT_ID", "GRID_ID", BANNER_ROW],
-        "meta": {"width": 12, "height": 8, "code": D.banner(title, colors, back=True, size=26)},
+        "meta": {"width": 12, "height": 10,
+                 "code": D.banner(title, colors, back=True, size=24)},
     }
     pos[BANNER_ROW] = {
         "type": "ROW",

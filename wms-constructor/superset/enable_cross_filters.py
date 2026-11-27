@@ -19,7 +19,12 @@ from superset.app import create_app
 
 app = create_app()
 
-SLUGS = ("wms-stock-parallel", "tasks-pilot", "wms-movement", "wms-receipts", "wms-orders")
+SLUGS = ("wms-stock-parallel", "tasks-pilot", "wms-movement", "wms-receipts", "wms-orders",
+         "wms-exchange",
+         # отчёты, перенесённые из Metabase
+         "wms-stock-issues", "wms-places", "wms-inventory",
+         "wms-reconcile-receipts", "wms-staff-workload",
+         "wms-product-movement", "wms-reconcile-orders", "wms-km")
 
 
 def patch(obj: dict) -> bool:
